@@ -57,3 +57,59 @@ fn test_skip_unparseable_files() {
     // Snapshot should only contain valid_module and another_valid, not malformed
     insta::assert_snapshot!(dot_output);
 }
+
+#[test]
+fn test_downstream_single_module() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+
+    // Find all modules that depend on pkg_b.module_b
+    let roots = vec![python::ModulePath(vec!["pkg_b".to_string(), "module_b".to_string()])];
+    let downstream = graph.find_downstream(&roots);
+    let output = graph.to_module_list(&downstream);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_downstream_multiple_modules() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+
+    // Find all modules that depend on both pkg_a.module_a and pkg_b.module_b
+    let roots = vec![
+        python::ModulePath(vec!["pkg_a".to_string(), "module_a".to_string()]),
+        python::ModulePath(vec!["pkg_b".to_string(), "module_b".to_string()]),
+    ];
+    let downstream = graph.find_downstream(&roots);
+    let output = graph.to_module_list(&downstream);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_downstream_no_dependents() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+
+    // main has no modules depending on it
+    let roots = vec![python::ModulePath(vec!["main".to_string()])];
+    let downstream = graph.find_downstream(&roots);
+    let output = graph.to_module_list(&downstream);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_downstream_nonexistent_module() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+
+    // Module that doesn't exist in the project
+    let roots = vec![python::ModulePath(vec!["nonexistent".to_string()])];
+    let downstream = graph.find_downstream(&roots);
+    let output = graph.to_module_list(&downstream);
+
+    // Should be empty
+    insta::assert_snapshot!(output);
+}

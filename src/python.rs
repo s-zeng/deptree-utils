@@ -4,8 +4,9 @@
 //! of internal module dependencies.
 
 use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::{Bfs, Reversed};
 use ruff_python_parser::parse_module;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use walkdir::WalkDir;
@@ -197,6 +198,49 @@ impl DependencyGraph {
 
         output.push_str("}\n");
         output
+    }
+
+    /// Find all modules that depend on the given root modules (downstream dependencies).
+    /// Returns a set containing the roots and all modules that transitively depend on them.
+    pub fn find_downstream(&self, roots: &[ModulePath]) -> HashSet<ModulePath> {
+        let mut downstream = HashSet::new();
+
+        // Convert ModulePaths to NodeIndices
+        let root_indices: Vec<NodeIndex> = roots
+            .iter()
+            .filter_map(|module| self.node_indices.get(module).copied())
+            .collect();
+
+        // Add the root modules themselves
+        for module in roots {
+            if self.node_indices.contains_key(module) {
+                downstream.insert(module.clone());
+            }
+        }
+
+        // Use BFS on the reversed graph to find all modules that depend on the roots
+        // In the reversed graph, edges point from dependents to dependencies
+        let reversed = Reversed(&self.graph);
+
+        for root_idx in root_indices {
+            let mut bfs = Bfs::new(&reversed, root_idx);
+            while let Some(node_idx) = bfs.next(&reversed) {
+                let module = &self.graph[node_idx];
+                downstream.insert(module.clone());
+            }
+        }
+
+        downstream
+    }
+
+    /// Convert a set of modules to a sorted, newline-separated list of dotted module names
+    pub fn to_module_list(&self, modules: &HashSet<ModulePath>) -> String {
+        let mut sorted_modules: Vec<String> = modules
+            .iter()
+            .map(|m| m.to_dotted())
+            .collect();
+        sorted_modules.sort();
+        sorted_modules.join("\n")
     }
 }
 

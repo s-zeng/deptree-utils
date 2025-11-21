@@ -36,7 +36,10 @@ features or structures
 ## Features
 
 ### Python Dependency Analysis
-Analyzes Python projects to extract internal module dependencies and outputs a Graphviz DOT graph.
+Analyzes Python projects to extract internal module dependencies.
+
+#### Basic Usage - DOT Graph Output
+Outputs a Graphviz DOT graph showing all internal dependencies:
 
 ```bash
 deptree-utils python <path-to-python-project>
@@ -48,6 +51,31 @@ The analyzer:
 - Resolves relative imports based on module location
 - Only includes internal dependencies (modules within the project)
 - Outputs a deterministic DOT format graph
+
+#### Downstream Dependency Analysis
+Find all modules that depend on a given set of modules (downstream dependencies). The output includes the specified modules and all modules that transitively depend on them, as a sorted, newline-separated list.
+
+**Via comma-separated list:**
+```bash
+deptree-utils python <path> --downstream pkg_a.module_a,pkg_b.module_b
+```
+
+**Via repeated flags:**
+```bash
+deptree-utils python <path> --downstream-module pkg_a.module_a --downstream-module pkg_b.module_b
+```
+
+**Via file input:**
+```bash
+# Create a file with module names (one per line)
+echo "pkg_a.module_a" > modules.txt
+echo "pkg_b.module_b" >> modules.txt
+
+deptree-utils python <path> --downstream-file modules.txt
+```
+
+**Combined usage:**
+All three input methods can be combined in a single command. The module lists will be merged.
 
 ## Development Environment
 
