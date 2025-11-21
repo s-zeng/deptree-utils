@@ -59,6 +59,29 @@ impl ModulePath {
         }
     }
 
+    /// Create a module path from a script file path outside the source root.
+    /// Uses path-based naming: scripts/blah.py -> ModulePath(["scripts", "blah"])
+    pub fn from_script_path(path: &Path, project_root: &Path) -> Option<Self> {
+        let relative = path.strip_prefix(project_root).ok()?;
+        let mut parts: Vec<String> = relative
+            .components()
+            .filter_map(|c| c.as_os_str().to_str().map(String::from))
+            .collect();
+
+        // Remove .py extension from last component
+        if let Some(last) = parts.last_mut() {
+            if last.ends_with(".py") {
+                *last = last.strip_suffix(".py")?.to_string();
+            }
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(ModulePath(parts))
+        }
+    }
+
     /// Convert to dotted module name (e.g., "pkg_a.module_a")
     pub fn to_dotted(&self) -> String {
         self.0.join(".")
@@ -148,6 +171,7 @@ fn extract_imports(source: &str) -> Result<Vec<Import>, String> {
 pub struct DependencyGraph {
     graph: DiGraph<ModulePath, ()>,
     node_indices: HashMap<ModulePath, NodeIndex>,
+    scripts: HashSet<ModulePath>, // Track which modules are scripts (outside source root)
 }
 
 impl DependencyGraph {
@@ -155,7 +179,18 @@ impl DependencyGraph {
         Self {
             graph: DiGraph::new(),
             node_indices: HashMap::new(),
+            scripts: HashSet::new(),
         }
+    }
+
+    /// Mark a module as a script (file outside the source root)
+    pub fn mark_as_script(&mut self, module: &ModulePath) {
+        self.scripts.insert(module.clone());
+    }
+
+    /// Check if a module is a script
+    pub fn is_script(&self, module: &ModulePath) -> bool {
+        self.scripts.contains(module)
     }
 
     /// Get or create a node for the given module
@@ -180,6 +215,7 @@ impl DependencyGraph {
     pub fn to_dot(&self) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
+        output.push_str("    // Note: Scripts (files outside source root) are shown with box shape\n");
 
         // Collect and sort nodes for deterministic output
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
@@ -188,7 +224,12 @@ impl DependencyGraph {
         // Add nodes
         for idx in &nodes {
             let module = &self.graph[*idx];
-            output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
+            if self.is_script(module) {
+                // Scripts get a different visual style (box shape)
+                output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
+            } else {
+                output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
+            }
         }
 
         // Collect and sort edges for deterministic output
@@ -264,7 +305,12 @@ impl Default for DependencyGraph {
 /// # Arguments
 /// * `project_root` - The root directory of the Python project
 /// * `source_root` - Optional explicit source root. If None, auto-detection will be used
-pub fn analyze_project(project_root: &Path, source_root: Option<&Path>) -> Result<DependencyGraph, PythonAnalysisError> {
+/// * `exclude_patterns` - Glob patterns to exclude from script discovery
+pub fn analyze_project(
+    project_root: &Path,
+    source_root: Option<&Path>,
+    exclude_patterns: &[String],
+) -> Result<DependencyGraph, PythonAnalysisError> {
     if !project_root.is_dir() {
         return Err(PythonAnalysisError::InvalidRoot(project_root.to_path_buf()));
     }
@@ -278,7 +324,7 @@ pub fn analyze_project(project_root: &Path, source_root: Option<&Path>) -> Resul
 
     let mut graph = DependencyGraph::new();
 
-    // Collect all Python modules in the project
+    // Collect all Python modules in the source root
     let mut modules: HashMap<ModulePath, PathBuf> = HashMap::new();
 
     for entry in WalkDir::new(&actual_source_root)
@@ -292,7 +338,40 @@ pub fn analyze_project(project_root: &Path, source_root: Option<&Path>) -> Resul
         }
     }
 
-    // Analyze each module's imports
+    // Discover scripts outside the source root
+    let mut scripts: HashMap<ModulePath, PathBuf> = HashMap::new();
+
+    for entry in WalkDir::new(project_root)
+        .into_iter()
+        .filter_entry(|e| {
+            // Skip the source root directory (already processed)
+            if e.path() == actual_source_root {
+                return false;
+            }
+            // Skip excluded directories
+            !should_exclude_path(e.path(), project_root, exclude_patterns)
+        })
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map(|ext| ext == "py").unwrap_or(false))
+    {
+        let path = entry.path();
+        // Only include files outside the source root
+        if !path.starts_with(&actual_source_root) {
+            if let Some(script_path) = ModulePath::from_script_path(path, project_root) {
+                scripts.insert(script_path.clone(), path.to_path_buf());
+                graph.mark_as_script(&script_path);
+            }
+        }
+    }
+
+    // Combine modules and scripts for import resolution
+    let all_files: HashMap<ModulePath, PathBuf> = modules
+        .iter()
+        .chain(scripts.iter())
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    // Analyze each module's imports (from source root)
     for (module_path, file_path) in &modules {
         let source = match std::fs::read_to_string(file_path) {
             Ok(source) => source,
@@ -322,10 +401,50 @@ pub fn analyze_project(project_root: &Path, source_root: Option<&Path>) -> Resul
                 }
             };
 
-            // Only add if it's an internal dependency
+            // Only add if it's an internal dependency (exists in modules or all_files)
             if let Some(resolved) = resolved {
-                if modules.contains_key(&resolved) || is_package_import(&resolved, &modules) {
+                if all_files.contains_key(&resolved) || is_package_import(&resolved, &all_files) {
                     graph.add_dependency(module_path.clone(), resolved);
+                }
+            }
+        }
+    }
+
+    // Analyze each script's imports (from outside source root)
+    for (script_path, file_path) in &scripts {
+        let source = match std::fs::read_to_string(file_path) {
+            Ok(source) => source,
+            Err(e) => {
+                eprintln!("Warning: Skipping file {}: {}", file_path.display(), e);
+                continue;
+            }
+        };
+
+        let imports = match extract_imports(&source) {
+            Ok(imports) => imports,
+            Err(message) => {
+                eprintln!("Warning: Skipping unparseable file {}: {}", file_path.display(), message);
+                continue;
+            }
+        };
+
+        // Ensure the script exists in the graph even if it has no deps
+        graph.get_or_create_node(script_path.clone());
+
+        for import in imports {
+            let resolved = match import {
+                Import::Absolute { module } => Some(ModulePath(module)),
+                Import::From { module, level } => {
+                    let module_str = module.as_ref().map(|v| v.join("."));
+                    // For scripts, relative imports resolve against the script's own location
+                    script_path.resolve_relative(level, module_str.as_deref())
+                }
+            };
+
+            // Only add if it's an internal dependency (module or script)
+            if let Some(resolved) = resolved {
+                if all_files.contains_key(&resolved) || is_package_import(&resolved, &all_files) {
+                    graph.add_dependency(script_path.clone(), resolved);
                 }
             }
         }
@@ -340,6 +459,67 @@ fn is_package_import(module: &ModulePath, modules: &HashMap<ModulePath, PathBuf>
     modules
         .keys()
         .any(|m| m.0.len() > module.0.len() && m.0.starts_with(&module.0))
+}
+
+/// Check if a path should be excluded based on exclusion patterns
+fn should_exclude_path(path: &Path, project_root: &Path, exclude_patterns: &[String]) -> bool {
+    // Get path relative to project root for pattern matching
+    let relative_path = match path.strip_prefix(project_root) {
+        Ok(rel) => rel,
+        Err(_) => return true, // Exclude paths outside project root
+    };
+
+    let path_str = relative_path.to_string_lossy();
+
+    // Default exclusion patterns
+    let default_excludes = [
+        "venv", ".venv", "__pycache__", ".git", ".pytest_cache",
+        ".egg-info", "build", "dist", ".tox", ".mypy_cache",
+        "node_modules", ".egg", "eggs",
+    ];
+
+    // Check if path contains any default excluded directories
+    for component in relative_path.components() {
+        if let Some(component_str) = component.as_os_str().to_str() {
+            // Check exact match or prefix match for patterns like "venv*"
+            for pattern in &default_excludes {
+                if component_str == *pattern ||
+                   (pattern.ends_with('*') && component_str.starts_with(pattern.trim_end_matches('*'))) ||
+                   component_str.starts_with("venv") || // venv, venv1, venv_old, etc.
+                   component_str.ends_with(".egg-info") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check custom exclusion patterns
+    for pattern in exclude_patterns {
+        // Simple glob pattern matching (supports * wildcard)
+        if pattern.contains('*') {
+            // Convert glob pattern to simple prefix/suffix/contains check
+            if pattern.starts_with('*') && pattern.ends_with('*') {
+                let substr = &pattern[1..pattern.len()-1];
+                if path_str.contains(substr) {
+                    return true;
+                }
+            } else if pattern.starts_with('*') {
+                let suffix = &pattern[1..];
+                if path_str.ends_with(suffix) {
+                    return true;
+                }
+            } else if pattern.ends_with('*') {
+                let prefix = &pattern[..pattern.len()-1];
+                if path_str.starts_with(prefix) {
+                    return true;
+                }
+            }
+        } else if path_str.contains(pattern.as_str()) {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Parse pyproject.toml to find the configured source root

@@ -129,6 +129,95 @@ deptree-utils python <path> --downstream-file modules.txt
 **Combined usage:**
 All three input methods can be combined in a single command. The module lists will be merged.
 
+#### Script Discovery Outside Source Root
+The analyzer automatically discovers and includes Python scripts outside the source root (e.g., `scripts/`, `tools/`) in dependency analysis. Scripts are treated as first-class citizens in the dependency graph and can import internal modules.
+
+**How It Works:**
+
+When analyzing a project, the tool:
+1. Analyzes all modules within the source root (as normal)
+2. Discovers Python files outside the source root
+3. Applies default exclusions to skip common directories
+4. Processes scripts separately with special import resolution rules
+
+**Default Exclusions:**
+
+The following directories are automatically excluded from script discovery:
+- `venv/`, `.venv/`, and any `venv*` directories
+- `__pycache__/`, `.pytest_cache/`, `.mypy_cache/`, `.tox/`
+- `.git/`, `.egg-info/`, `*.egg/`, `eggs/`
+- `build/`, `dist/`, `node_modules/`
+
+**Example Project Structure:**
+```
+project/
+├── src/
+│   └── foo/
+│       └── bar.py          # Internal module
+├── scripts/
+│   ├── blah.py             # Script importing foo.bar
+│   └── utils/
+│       └── helper.py       # Helper script
+└── pyproject.toml
+```
+
+In `scripts/blah.py`:
+```python
+from foo.bar import something  # Imports internal module
+```
+
+**Script Naming Convention:**
+
+Scripts are named using their path relative to the project root:
+- `scripts/blah.py` → `scripts.blah`
+- `tools/utils/helper.py` → `tools.utils.helper`
+
+**Visual Distinction in DOT Output:**
+
+Scripts are visually distinguished in the dependency graph:
+- Internal modules: shown as ellipses (default DOT shape)
+- Scripts: shown as boxes (`[shape=box]`)
+
+**Custom Exclusion Patterns:**
+
+You can exclude additional paths from script discovery using the `--exclude-scripts` flag:
+
+```bash
+# Exclude a specific directory
+deptree-utils python ./my-project --exclude-scripts "old_scripts"
+
+# Exclude multiple patterns
+deptree-utils python ./my-project \
+  --exclude-scripts "old_scripts" \
+  --exclude-scripts "experimental"
+
+# Use wildcards
+deptree-utils python ./my-project --exclude-scripts "*backup*"
+```
+
+**Import Resolution for Scripts:**
+
+Scripts use special import resolution rules:
+- **Absolute imports** (e.g., `from foo.bar import x`) resolve against the source root
+- **Relative imports** (e.g., `from .utils import helper`) resolve against the script's location
+- Scripts can import both internal modules and other scripts
+
+**Downstream Analysis with Scripts:**
+
+Scripts are included in downstream dependency analysis. If a script imports an internal module, modifying that module will show the script as a downstream dependent:
+
+```bash
+# Find all code (modules and scripts) that depend on foo.bar
+deptree-utils python ./my-project --downstream foo.bar
+```
+
+Output might include:
+```
+foo.bar
+scripts.blah
+scripts.runner
+```
+
 ## Development Environment
 
 This project uses Nix for reproducible builds and development environments. The

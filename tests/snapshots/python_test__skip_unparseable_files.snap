@@ -4,6 +4,7 @@ expression: dot_output
 ---
 digraph dependencies {
     rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
     "another_valid";
     "valid_module";
     "another_valid" -> "valid_module";

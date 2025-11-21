@@ -5,12 +5,6 @@ expression: dot_output
 digraph dependencies {
     rankdir=LR;
     // Note: Scripts (files outside source root) are shown with box shape
-    "main";
-    "pkg_a";
-    "pkg_a.module_a";
-    "pkg_b";
-    "pkg_b.module_b";
-    "main" -> "pkg_a";
-    "main" -> "pkg_b.module_b";
-    "pkg_a.module_a" -> "pkg_b";
+    "foo";
+    "foo.bar";
 }

@@ -1,0 +1,16 @@
+---
+source: tests/python_test.rs
+expression: dot_output
+---
+digraph dependencies {
+    rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
+    "foo";
+    "foo.bar";
+    "scripts.blah" [shape=box];
+    "scripts.runner" [shape=box];
+    "scripts.utils.helper" [shape=box];
+    "scripts.blah" -> "foo.bar";
+    "scripts.runner" -> "foo.bar";
+    "scripts.runner" -> "scripts.utils.helper";
+}

@@ -1,0 +1,7 @@
+---
+source: tests/python_test.rs
+expression: output
+---
+foo.bar
+scripts.blah
+scripts.runner

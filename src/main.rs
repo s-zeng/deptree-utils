@@ -37,6 +37,10 @@ enum Command {
         /// File containing newline-separated list of modules to find downstream dependencies for
         #[arg(long)]
         downstream_file: Option<PathBuf>,
+
+        /// Glob patterns to exclude from script discovery (can be repeated)
+        #[arg(long = "exclude-scripts")]
+        exclude_scripts: Vec<String>,
     },
 }
 
@@ -54,8 +58,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             downstream,
             downstream_module,
             downstream_file,
+            exclude_scripts,
         } => {
-            let graph = python::analyze_project(&path, source_root.as_deref())?;
+            let graph = python::analyze_project(&path, source_root.as_deref(), &exclude_scripts)?;
 
             // Collect module names from all three sources
             let mut module_names: Vec<String> = Vec::new();
