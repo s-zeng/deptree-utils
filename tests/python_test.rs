@@ -51,7 +51,8 @@ fn test_skip_unparseable_files() {
         .join("unparseable_python_project");
 
     // Should succeed despite malformed.py containing invalid syntax
-    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project with unparseable files");
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze project with unparseable files");
     let dot_output = graph.to_dot();
 
     // Snapshot should only contain valid_module and another_valid, not malformed
@@ -64,7 +65,10 @@ fn test_downstream_single_module() {
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
 
     // Find all modules that depend on pkg_b.module_b
-    let roots = vec![python::ModulePath(vec!["pkg_b".to_string(), "module_b".to_string()])];
+    let roots = vec![python::ModulePath(vec![
+        "pkg_b".to_string(),
+        "module_b".to_string(),
+    ])];
     let downstream = graph.find_downstream(&roots);
     let output = graph.to_module_list(&downstream);
 
@@ -122,8 +126,8 @@ fn test_src_layout_auto_detection() {
         .join("src_layout_project");
 
     // Auto-detection should find src/ directory from pyproject.toml
-    let graph = python::analyze_project(&root, None, &[])
-        .expect("Failed to analyze src layout project");
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze src layout project");
     let dot_output = graph.to_dot();
 
     // Should have same modules as flat layout (pkg_a, pkg_b, main)
@@ -139,8 +143,8 @@ fn test_lib_python_layout_auto_detection() {
         .join("lib_python_layout");
 
     // Auto-detection should find lib/python/ directory via heuristics
-    let graph = python::analyze_project(&root, None, &[])
-        .expect("Failed to analyze lib/python layout");
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze lib/python layout");
     let dot_output = graph.to_dot();
 
     // Should have same modules as flat layout (pkg_a, pkg_b, main)
@@ -173,8 +177,8 @@ fn test_project_with_scripts() {
         .join("project_with_scripts");
 
     // Should discover scripts outside source root
-    let graph = python::analyze_project(&root, None, &[])
-        .expect("Failed to analyze project with scripts");
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
     let dot_output = graph.to_dot();
 
     // Should include:
@@ -193,8 +197,8 @@ fn test_script_imports_internal_module() {
         .join("fixtures")
         .join("project_with_scripts");
 
-    let graph = python::analyze_project(&root, None, &[])
-        .expect("Failed to analyze project with scripts");
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
 
     // scripts.blah should depend on foo.bar
     let foo_bar = python::ModulePath(vec!["foo".to_string(), "bar".to_string()]);
@@ -214,13 +218,15 @@ fn test_script_relative_imports() {
         .join("fixtures")
         .join("project_with_scripts");
 
-    let graph = python::analyze_project(&root, None, &[])
-        .expect("Failed to analyze project with scripts");
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
 
     // scripts.runner should depend on scripts.utils.helper (via relative import)
-    let downstream = graph.find_downstream(&[
-        python::ModulePath(vec!["scripts".to_string(), "utils".to_string(), "helper".to_string()])
-    ]);
+    let downstream = graph.find_downstream(&[python::ModulePath(vec![
+        "scripts".to_string(),
+        "utils".to_string(),
+        "helper".to_string(),
+    ])]);
     let output = graph.to_module_list(&downstream);
 
     // Should include scripts.utils.helper and scripts.runner

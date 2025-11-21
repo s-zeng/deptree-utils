@@ -75,8 +75,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // From file
             if let Some(file_path) = downstream_file {
-                let content = std::fs::read_to_string(&file_path)
-                    .map_err(|e| format!("Failed to read downstream file {}: {}", file_path.display(), e))?;
+                let content = std::fs::read_to_string(&file_path).map_err(|e| {
+                    format!(
+                        "Failed to read downstream file {}: {}",
+                        file_path.display(),
+                        e
+                    )
+                })?;
                 module_names.extend(
                     content
                         .lines()

@@ -215,7 +215,9 @@ impl DependencyGraph {
     pub fn to_dot(&self) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
-        output.push_str("    // Note: Scripts (files outside source root) are shown with box shape\n");
+        output.push_str(
+            "    // Note: Scripts (files outside source root) are shown with box shape\n",
+        );
 
         // Collect and sort nodes for deterministic output
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
@@ -285,10 +287,7 @@ impl DependencyGraph {
 
     /// Convert a set of modules to a sorted, newline-separated list of dotted module names
     pub fn to_module_list(&self, modules: &HashSet<ModulePath>) -> String {
-        let mut sorted_modules: Vec<String> = modules
-            .iter()
-            .map(|m| m.to_dotted())
-            .collect();
+        let mut sorted_modules: Vec<String> = modules.iter().map(|m| m.to_dotted()).collect();
         sorted_modules.sort();
         sorted_modules.join("\n")
     }
@@ -384,7 +383,11 @@ pub fn analyze_project(
         let imports = match extract_imports(&source) {
             Ok(imports) => imports,
             Err(message) => {
-                eprintln!("Warning: Skipping unparseable file {}: {}", file_path.display(), message);
+                eprintln!(
+                    "Warning: Skipping unparseable file {}: {}",
+                    file_path.display(),
+                    message
+                );
                 continue;
             }
         };
@@ -423,7 +426,11 @@ pub fn analyze_project(
         let imports = match extract_imports(&source) {
             Ok(imports) => imports,
             Err(message) => {
-                eprintln!("Warning: Skipping unparseable file {}: {}", file_path.display(), message);
+                eprintln!(
+                    "Warning: Skipping unparseable file {}: {}",
+                    file_path.display(),
+                    message
+                );
                 continue;
             }
         };
@@ -473,9 +480,19 @@ fn should_exclude_path(path: &Path, project_root: &Path, exclude_patterns: &[Str
 
     // Default exclusion patterns
     let default_excludes = [
-        "venv", ".venv", "__pycache__", ".git", ".pytest_cache",
-        ".egg-info", "build", "dist", ".tox", ".mypy_cache",
-        "node_modules", ".egg", "eggs",
+        "venv",
+        ".venv",
+        "__pycache__",
+        ".git",
+        ".pytest_cache",
+        ".egg-info",
+        "build",
+        "dist",
+        ".tox",
+        ".mypy_cache",
+        "node_modules",
+        ".egg",
+        "eggs",
     ];
 
     // Check if path contains any default excluded directories
@@ -486,7 +503,8 @@ fn should_exclude_path(path: &Path, project_root: &Path, exclude_patterns: &[Str
                 if component_str == *pattern ||
                    (pattern.ends_with('*') && component_str.starts_with(pattern.trim_end_matches('*'))) ||
                    component_str.starts_with("venv") || // venv, venv1, venv_old, etc.
-                   component_str.ends_with(".egg-info") {
+                   component_str.ends_with(".egg-info")
+                {
                     return true;
                 }
             }
@@ -499,7 +517,7 @@ fn should_exclude_path(path: &Path, project_root: &Path, exclude_patterns: &[Str
         if pattern.contains('*') {
             // Convert glob pattern to simple prefix/suffix/contains check
             if pattern.starts_with('*') && pattern.ends_with('*') {
-                let substr = &pattern[1..pattern.len()-1];
+                let substr = &pattern[1..pattern.len() - 1];
                 if path_str.contains(substr) {
                     return true;
                 }
@@ -509,7 +527,7 @@ fn should_exclude_path(path: &Path, project_root: &Path, exclude_patterns: &[Str
                     return true;
                 }
             } else if pattern.ends_with('*') {
-                let prefix = &pattern[..pattern.len()-1];
+                let prefix = &pattern[..pattern.len() - 1];
                 if path_str.starts_with(prefix) {
                     return true;
                 }
@@ -533,7 +551,8 @@ fn parse_pyproject_toml(project_root: &Path) -> Result<Option<PathBuf>, PythonAn
     let content = std::fs::read_to_string(&toml_path)
         .map_err(|e| PythonAnalysisError::ConfigReadError(toml_path.clone(), e))?;
 
-    let config: toml::Value = content.parse()
+    let config: toml::Value = content
+        .parse()
         .map_err(|e| PythonAnalysisError::ConfigParseError(toml_path.clone(), e))?;
 
     // Try to extract source root from [tool.setuptools.packages.find] where
@@ -563,8 +582,8 @@ fn has_python_packages(path: &Path) -> bool {
         .filter_map(|e| e.ok())
         .any(|e| {
             let path = e.path();
-            path.extension().map(|ext| ext == "py").unwrap_or(false) ||
-            path.join("__init__.py").exists()
+            path.extension().map(|ext| ext == "py").unwrap_or(false)
+                || path.join("__init__.py").exists()
         })
 }
 
@@ -590,7 +609,9 @@ fn detect_source_root(project_root: &Path) -> Result<PathBuf, PythonAnalysisErro
         return Ok(project_root.to_path_buf());
     }
 
-    Err(PythonAnalysisError::NoSourceRootFound(project_root.to_path_buf()))
+    Err(PythonAnalysisError::NoSourceRootFound(
+        project_root.to_path_buf(),
+    ))
 }
 
 #[cfg(test)]
