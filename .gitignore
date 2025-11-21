@@ -2,5 +2,6 @@
 /result
 /result-lib
 .direnv
+scratch/
 
 /.pre-commit-config.yaml
