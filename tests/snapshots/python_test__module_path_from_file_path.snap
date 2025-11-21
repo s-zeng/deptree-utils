@@ -1,0 +1,5 @@
+---
+source: tests/python_test.rs
+expression: module.unwrap().to_dotted()
+---
+pkg_a.module_a

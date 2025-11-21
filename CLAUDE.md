@@ -33,7 +33,21 @@ features or structures
 - Use structured error types instead of plain strings where possible
 - Provide actionable information for debugging
 
- `ollama`: Uses local Ollama installation
+## Features
+
+### Python Dependency Analysis
+Analyzes Python projects to extract internal module dependencies and outputs a Graphviz DOT graph.
+
+```bash
+deptree-utils python <path-to-python-project>
+```
+
+The analyzer:
+- Parses Python files using `ruff_python_parser`
+- Extracts `import` and `from ... import` statements
+- Resolves relative imports based on module location
+- Only includes internal dependencies (modules within the project)
+- Outputs a deterministic DOT format graph
 
 ## Development Environment
 

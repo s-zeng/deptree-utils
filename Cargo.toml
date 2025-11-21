@@ -1,6 +1,6 @@
 [package]
 authors = ["Simon Zeng <rust@simonzeng.ca>"]
-edition = "2021"
+edition = "2024"
 # If you change the name here, you must also do it in flake.nix (and run `cargo generate-lockfile` afterwards)
 name = "deptree-utils"
 description = "A simple Rust project using Nix"
@@ -10,3 +10,11 @@ version = "0.1.0"
 
 [dependencies]
 clap = { version = "4.3.14", features = ["derive"] }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", tag = "0.13.3" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", tag = "0.13.3" }
+petgraph = "0.6"
+walkdir = "2.5"
+thiserror = "2.0"
+
+[dev-dependencies]
+insta = "1.40"

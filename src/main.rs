@@ -1,25 +1,42 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+mod python;
 
 #[derive(Parser, Debug)]
-#[clap(author = "Simon Zeng", version, about)]
-/// Application configuration
+#[clap(author = "Simon Zeng", version, about = "Dependency tree utilities")]
 struct Args {
-    /// whether to be verbose
-    #[arg(short = 'v')]
+    /// Enable verbose output
+    #[arg(short = 'v', global = true)]
     verbose: bool,
 
-    /// an optional name to greet
-    #[arg()]
-    name: Option<String>,
+    #[command(subcommand)]
+    command: Command,
 }
 
-fn main() {
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Analyze Python project dependencies
+    Python {
+        /// Path to the Python project root
+        #[arg()]
+        path: PathBuf,
+    },
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
     if args.verbose {
-        println!("DEBUG {args:?}");
+        eprintln!("DEBUG {args:?}");
     }
-    println!(
-        "Hello {} (from deptree-utils)!",
-        args.name.unwrap_or("world".to_string())
-    );
+
+    match args.command {
+        Command::Python { path } => {
+            let graph = python::analyze_project(&path)?;
+            println!("{}", graph.to_dot());
+        }
+    }
+
+    Ok(())
 }
