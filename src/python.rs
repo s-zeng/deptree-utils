@@ -16,6 +16,15 @@ use walkdir::WalkDir;
 pub enum PythonAnalysisError {
     #[error("Invalid project root: {0}")]
     InvalidRoot(PathBuf),
+
+    #[error("Failed to read config file {0}: {1}")]
+    ConfigReadError(PathBuf, std::io::Error),
+
+    #[error("Failed to parse config file {0}: {1}")]
+    ConfigParseError(PathBuf, toml::de::Error),
+
+    #[error("No Python source root found in {0}")]
+    NoSourceRootFound(PathBuf),
 }
 
 /// Represents a Python module within the project
@@ -251,23 +260,34 @@ impl Default for DependencyGraph {
 }
 
 /// Analyze a Python project and return its internal dependency graph
-pub fn analyze_project(root: &Path) -> Result<DependencyGraph, PythonAnalysisError> {
-    if !root.is_dir() {
-        return Err(PythonAnalysisError::InvalidRoot(root.to_path_buf()));
+///
+/// # Arguments
+/// * `project_root` - The root directory of the Python project
+/// * `source_root` - Optional explicit source root. If None, auto-detection will be used
+pub fn analyze_project(project_root: &Path, source_root: Option<&Path>) -> Result<DependencyGraph, PythonAnalysisError> {
+    if !project_root.is_dir() {
+        return Err(PythonAnalysisError::InvalidRoot(project_root.to_path_buf()));
     }
+
+    // Determine the actual source root to use
+    let actual_source_root = if let Some(explicit_root) = source_root {
+        explicit_root.to_path_buf()
+    } else {
+        detect_source_root(project_root)?
+    };
 
     let mut graph = DependencyGraph::new();
 
     // Collect all Python modules in the project
     let mut modules: HashMap<ModulePath, PathBuf> = HashMap::new();
 
-    for entry in WalkDir::new(root)
+    for entry in WalkDir::new(&actual_source_root)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map(|ext| ext == "py").unwrap_or(false))
     {
         let path = entry.path();
-        if let Some(module_path) = ModulePath::from_file_path(path, root) {
+        if let Some(module_path) = ModulePath::from_file_path(path, &actual_source_root) {
             modules.insert(module_path, path.to_path_buf());
         }
     }
@@ -320,6 +340,77 @@ fn is_package_import(module: &ModulePath, modules: &HashMap<ModulePath, PathBuf>
     modules
         .keys()
         .any(|m| m.0.len() > module.0.len() && m.0.starts_with(&module.0))
+}
+
+/// Parse pyproject.toml to find the configured source root
+fn parse_pyproject_toml(project_root: &Path) -> Result<Option<PathBuf>, PythonAnalysisError> {
+    let toml_path = project_root.join("pyproject.toml");
+
+    if !toml_path.exists() {
+        return Ok(None);
+    }
+
+    let content = std::fs::read_to_string(&toml_path)
+        .map_err(|e| PythonAnalysisError::ConfigReadError(toml_path.clone(), e))?;
+
+    let config: toml::Value = content.parse()
+        .map_err(|e| PythonAnalysisError::ConfigParseError(toml_path.clone(), e))?;
+
+    // Try to extract source root from [tool.setuptools.packages.find] where
+    let source_root = config
+        .get("tool")
+        .and_then(|t| t.get("setuptools"))
+        .and_then(|s| s.get("packages"))
+        .and_then(|p| p.get("find"))
+        .and_then(|f| f.get("where"))
+        .and_then(|w| w.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+        .map(|s| project_root.join(s));
+
+    Ok(source_root)
+}
+
+/// Check if a directory contains Python packages (has .py files or __init__.py)
+fn has_python_packages(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+
+    WalkDir::new(path)
+        .max_depth(2)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .any(|e| {
+            let path = e.path();
+            path.extension().map(|ext| ext == "py").unwrap_or(false) ||
+            path.join("__init__.py").exists()
+        })
+}
+
+/// Detect the Python source root using heuristics
+fn detect_source_root(project_root: &Path) -> Result<PathBuf, PythonAnalysisError> {
+    // 1. Try parsing pyproject.toml
+    if let Some(root) = parse_pyproject_toml(project_root)? {
+        if root.is_dir() && has_python_packages(&root) {
+            return Ok(root);
+        }
+    }
+
+    // 2. Check for common source directory patterns
+    for candidate in ["src", "lib/python"] {
+        let path = project_root.join(candidate);
+        if path.is_dir() && has_python_packages(&path) {
+            return Ok(path);
+        }
+    }
+
+    // 3. Use project root as fallback (flat layout)
+    if has_python_packages(project_root) {
+        return Ok(project_root.to_path_buf());
+    }
+
+    Err(PythonAnalysisError::NoSourceRootFound(project_root.to_path_buf()))
 }
 
 #[cfg(test)]

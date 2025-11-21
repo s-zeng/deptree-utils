@@ -22,6 +22,10 @@ enum Command {
         #[arg()]
         path: PathBuf,
 
+        /// Python source root directory (defaults to auto-detection)
+        #[arg(long, short = 's')]
+        source_root: Option<PathBuf>,
+
         /// Comma-separated list of modules to find downstream dependencies for
         #[arg(long)]
         downstream: Option<String>,
@@ -46,11 +50,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.command {
         Command::Python {
             path,
+            source_root,
             downstream,
             downstream_module,
             downstream_file,
         } => {
-            let graph = python::analyze_project(&path)?;
+            let graph = python::analyze_project(&path, source_root.as_deref())?;
 
             // Collect module names from all three sources
             let mut module_names: Vec<String> = Vec::new();

@@ -52,6 +52,58 @@ The analyzer:
 - Only includes internal dependencies (modules within the project)
 - Outputs a deterministic DOT format graph
 
+#### Source Root Detection
+The analyzer automatically detects the Python source root to correctly handle projects with different layouts.
+
+**Supported Layouts:**
+
+1. **Flat layout** (packages at project root):
+```
+project/
+├── pkg_a/
+└── pkg_b/
+```
+
+2. **src/ layout** (modern Python best practice):
+```
+project/
+├── src/
+│   ├── pkg_a/
+│   └── pkg_b/
+└── pyproject.toml
+```
+
+3. **lib/python/ layout** (common in monorepos):
+```
+project/
+└── lib/
+    └── python/
+        ├── pkg_a/
+        └── pkg_b/
+```
+
+**Auto-Detection Process:**
+1. Parse `pyproject.toml` for `[tool.setuptools.packages.find] where = ["..."]` configuration
+2. Check for `src/` directory with Python packages
+3. Check for `lib/python/` directory with Python packages
+4. Fall back to project root (flat layout)
+
+**Explicit Source Root Override:**
+You can explicitly specify the source root using the `--source-root` (or `-s`) flag:
+
+```bash
+# Explicitly specify source root
+deptree-utils python ./my-project --source-root ./my-project/src
+
+# Or use short form
+deptree-utils python ./my-project -s ./my-project/src
+```
+
+This is useful when:
+- Auto-detection fails or picks the wrong directory
+- You want to analyze a specific subdirectory
+- The project has an unusual structure
+
 #### Downstream Dependency Analysis
 Find all modules that depend on a given set of modules (downstream dependencies). The output includes the specified modules and all modules that transitively depend on them, as a sorted, newline-separated list.
 

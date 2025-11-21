@@ -1,0 +1,15 @@
+---
+source: tests/python_test.rs
+expression: dot_output
+---
+digraph dependencies {
+    rankdir=LR;
+    "main";
+    "pkg_a";
+    "pkg_a.module_a";
+    "pkg_b";
+    "pkg_b.module_b";
+    "main" -> "pkg_a";
+    "main" -> "pkg_b.module_b";
+    "pkg_a.module_a" -> "pkg_b";
+}

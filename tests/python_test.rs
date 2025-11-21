@@ -16,7 +16,7 @@ fn fixture_path() -> PathBuf {
 #[test]
 fn test_sample_python_project_dot_output() {
     let root = fixture_path();
-    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+    let graph = python::analyze_project(&root, None).expect("Failed to analyze project");
     let dot_output = graph.to_dot();
 
     insta::assert_snapshot!(dot_output);
@@ -51,7 +51,7 @@ fn test_skip_unparseable_files() {
         .join("unparseable_python_project");
 
     // Should succeed despite malformed.py containing invalid syntax
-    let graph = python::analyze_project(&root).expect("Failed to analyze project with unparseable files");
+    let graph = python::analyze_project(&root, None).expect("Failed to analyze project with unparseable files");
     let dot_output = graph.to_dot();
 
     // Snapshot should only contain valid_module and another_valid, not malformed
@@ -61,7 +61,7 @@ fn test_skip_unparseable_files() {
 #[test]
 fn test_downstream_single_module() {
     let root = fixture_path();
-    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+    let graph = python::analyze_project(&root, None).expect("Failed to analyze project");
 
     // Find all modules that depend on pkg_b.module_b
     let roots = vec![python::ModulePath(vec!["pkg_b".to_string(), "module_b".to_string()])];
@@ -74,7 +74,7 @@ fn test_downstream_single_module() {
 #[test]
 fn test_downstream_multiple_modules() {
     let root = fixture_path();
-    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+    let graph = python::analyze_project(&root, None).expect("Failed to analyze project");
 
     // Find all modules that depend on both pkg_a.module_a and pkg_b.module_b
     let roots = vec![
@@ -90,7 +90,7 @@ fn test_downstream_multiple_modules() {
 #[test]
 fn test_downstream_no_dependents() {
     let root = fixture_path();
-    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+    let graph = python::analyze_project(&root, None).expect("Failed to analyze project");
 
     // main has no modules depending on it
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
@@ -103,7 +103,7 @@ fn test_downstream_no_dependents() {
 #[test]
 fn test_downstream_nonexistent_module() {
     let root = fixture_path();
-    let graph = python::analyze_project(&root).expect("Failed to analyze project");
+    let graph = python::analyze_project(&root, None).expect("Failed to analyze project");
 
     // Module that doesn't exist in the project
     let roots = vec![python::ModulePath(vec!["nonexistent".to_string()])];
@@ -112,4 +112,55 @@ fn test_downstream_nonexistent_module() {
 
     // Should be empty
     insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_src_layout_auto_detection() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("src_layout_project");
+
+    // Auto-detection should find src/ directory from pyproject.toml
+    let graph = python::analyze_project(&root, None)
+        .expect("Failed to analyze src layout project");
+    let dot_output = graph.to_dot();
+
+    // Should have same modules as flat layout (pkg_a, pkg_b, main)
+    // Module names should be relative to src/ not project root
+    insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_lib_python_layout_auto_detection() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("lib_python_layout");
+
+    // Auto-detection should find lib/python/ directory via heuristics
+    let graph = python::analyze_project(&root, None)
+        .expect("Failed to analyze lib/python layout");
+    let dot_output = graph.to_dot();
+
+    // Should have same modules as flat layout (pkg_a, pkg_b, main)
+    // Module names should be relative to lib/python/ not project root
+    insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_explicit_source_root_override() {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("src_layout_project");
+    let source_root = project_root.join("src");
+
+    // Explicitly specify source root instead of relying on auto-detection
+    let graph = python::analyze_project(&project_root, Some(&source_root))
+        .expect("Failed to analyze with explicit source root");
+    let dot_output = graph.to_dot();
+
+    // Should produce same output as auto-detection
+    insta::assert_snapshot!(dot_output);
 }
