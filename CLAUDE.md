@@ -129,6 +129,91 @@ deptree-utils python <path> --downstream-file modules.txt
 **Combined usage:**
 All three input methods can be combined in a single command. The module lists will be merged.
 
+#### Upstream Dependency Analysis
+Find all modules that a given set of modules depends on (upstream dependencies). The output is a DOT graph showing only the specified modules and all modules they transitively depend on (the upstream dependency tree).
+
+**Basic usage via comma-separated list:**
+```bash
+deptree-utils python-upstream <path> --upstream pkg_a.module_a,pkg_b.module_b
+```
+
+**Via repeated flags:**
+```bash
+deptree-utils python-upstream <path> --upstream-module pkg_a.module_a --upstream-module pkg_b.module_b
+```
+
+**Via file input:**
+```bash
+# Create a file with module names (one per line)
+echo "pkg_a.module_a" > modules.txt
+echo "pkg_b.module_b" >> modules.txt
+
+deptree-utils python-upstream <path> --upstream-file modules.txt
+```
+
+**Combined usage:**
+All three input methods can be combined in a single command. The module lists will be merged.
+
+**File path support:**
+Instead of using dotted module names, you can directly specify file paths to Python files:
+
+```bash
+# Using a script file path
+deptree-utils python-upstream ./my-project --upstream scripts/my_script.py
+
+# Using an internal module file path
+deptree-utils python-upstream ./my-project --upstream src/pkg_a/module_a.py
+
+# Using relative paths (when running from project directory)
+cd my-project
+deptree-utils python-upstream . --upstream bin/my_script.py
+
+# Mix file paths and dotted names
+deptree-utils python-upstream ./my-project \
+  --upstream-module scripts/runner.py \
+  --upstream-module pkg_a.module_a
+```
+
+File paths can be:
+- Absolute or relative paths
+- Paths to scripts outside the source root (e.g., `scripts/`, `bin/`)
+- Paths to internal modules inside the source root (e.g., `src/pkg_a/module_a.py`)
+- Mixed with dotted module names in the same command
+
+**Output format:**
+The command outputs a Graphviz DOT graph showing only the upstream dependency subgraph. This includes:
+- The specified module(s)
+- All modules they depend on (directly or transitively)
+- Only edges between modules in this set
+- Visual distinction for scripts (box shape) vs. internal modules (ellipse shape)
+
+**Example:**
+```bash
+# Find everything that main.py depends on
+deptree-utils python-upstream ./my-project --upstream main
+
+# Visualize with Graphviz
+deptree-utils python-upstream ./my-project --upstream main | dot -Tpng > deps.png
+```
+
+**Use cases:**
+- Understanding what would need to be tested when modifying a dependency
+- Identifying the minimal set of modules needed to run a specific module
+- Analyzing the complexity of a module by counting its transitive dependencies
+- Finding circular dependencies in a specific part of the codebase
+
+**With explicit source root:**
+```bash
+deptree-utils python-upstream ./my-project --source-root ./my-project/src --upstream main
+```
+
+**Script exclusion:**
+The `--exclude-scripts` flag works the same way as in the `python` command:
+
+```bash
+deptree-utils python-upstream ./my-project --upstream main --exclude-scripts "old_scripts"
+```
+
 #### Script Discovery Outside Source Root
 The analyzer automatically discovers and includes Python scripts outside the source root (e.g., `scripts/`, `tools/`) in dependency analysis. Scripts are treated as first-class citizens in the dependency graph and can import internal modules.
 

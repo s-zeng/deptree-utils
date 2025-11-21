@@ -252,6 +252,55 @@ impl DependencyGraph {
         output
     }
 
+    /// Convert a filtered set of modules to Graphviz DOT format (subgraph).
+    /// Only includes nodes and edges where both endpoints are in the filtered set.
+    pub fn to_dot_filtered(&self, filter: &HashSet<ModulePath>) -> String {
+        let mut output = String::from("digraph dependencies {\n");
+        output.push_str("    rankdir=LR;\n");
+        output.push_str(
+            "    // Note: Scripts (files outside source root) are shown with box shape\n",
+        );
+
+        // Collect and sort nodes that are in the filter
+        let mut nodes: Vec<_> = self
+            .graph
+            .node_indices()
+            .filter(|idx| filter.contains(&self.graph[*idx]))
+            .collect();
+        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Add nodes
+        for idx in &nodes {
+            let module = &self.graph[*idx];
+            if self.is_script(module) {
+                // Scripts get a different visual style (box shape)
+                output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
+            } else {
+                output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
+            }
+        }
+
+        // Collect and sort edges where both endpoints are in the filter
+        let mut edges: Vec<_> = self
+            .graph
+            .edge_indices()
+            .filter_map(|e| self.graph.edge_endpoints(e))
+            .filter(|(from, to)| {
+                filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
+            })
+            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+            .collect();
+        edges.sort();
+
+        // Add edges
+        for (from_name, to_name) in edges {
+            output.push_str(&format!("    \"{}\" -> \"{}\";\n", from_name, to_name));
+        }
+
+        output.push_str("}\n");
+        output
+    }
+
     /// Find all modules that depend on the given root modules (downstream dependencies).
     /// Returns a set containing the roots and all modules that transitively depend on them.
     pub fn find_downstream(&self, roots: &[ModulePath]) -> HashSet<ModulePath> {
@@ -283,6 +332,37 @@ impl DependencyGraph {
         }
 
         downstream
+    }
+
+    /// Find all modules that the given root modules depend on (upstream dependencies).
+    /// Returns a set containing the roots and all modules that they transitively depend on.
+    pub fn find_upstream(&self, roots: &[ModulePath]) -> HashSet<ModulePath> {
+        let mut upstream = HashSet::new();
+
+        // Convert ModulePaths to NodeIndices
+        let root_indices: Vec<NodeIndex> = roots
+            .iter()
+            .filter_map(|module| self.node_indices.get(module).copied())
+            .collect();
+
+        // Add the root modules themselves
+        for module in roots {
+            if self.node_indices.contains_key(module) {
+                upstream.insert(module.clone());
+            }
+        }
+
+        // Use BFS on the original graph to find all modules that the roots depend on
+        // Edges point from modules to their dependencies
+        for root_idx in root_indices {
+            let mut bfs = Bfs::new(&self.graph, root_idx);
+            while let Some(node_idx) = bfs.next(&self.graph) {
+                let module = &self.graph[node_idx];
+                upstream.insert(module.clone());
+            }
+        }
+
+        upstream
     }
 
     /// Convert a set of modules to a sorted, newline-separated list of dotted module names
@@ -588,7 +668,7 @@ fn has_python_packages(path: &Path) -> bool {
 }
 
 /// Detect the Python source root using heuristics
-fn detect_source_root(project_root: &Path) -> Result<PathBuf, PythonAnalysisError> {
+pub fn detect_source_root(project_root: &Path) -> Result<PathBuf, PythonAnalysisError> {
     // 1. Try parsing pyproject.toml
     if let Some(root) = parse_pyproject_toml(project_root)? {
         if root.is_dir() && has_python_packages(&root) {

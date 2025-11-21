@@ -1,6 +1,7 @@
 //! Integration tests for Python dependency analysis
 
 use std::path::PathBuf;
+use std::process::Command;
 
 // Re-export from main crate
 #[path = "../src/python.rs"]
@@ -247,4 +248,276 @@ fn test_exclude_scripts_pattern() {
 
     // Should only include foo.bar, no scripts
     insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_upstream_single_module_no_deps() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that pkg_b.module_b depends on (it has no internal dependencies)
+    let roots = vec![python::ModulePath(vec![
+        "pkg_b".to_string(),
+        "module_b".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_single_module_with_deps() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that pkg_a.module_a depends on
+    // Should include pkg_a.module_a and pkg_b.module_b
+    let roots = vec![python::ModulePath(vec![
+        "pkg_a".to_string(),
+        "module_a".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_transitive_deps() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that main depends on (should include transitive dependencies)
+    // Should include: main, pkg_a.module_a, pkg_b.module_b
+    let roots = vec![python::ModulePath(vec!["main".to_string()])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_multiple_modules() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that both pkg_a.module_a and pkg_b.module_b depend on
+    // Union of their upstream dependencies
+    let roots = vec![
+        python::ModulePath(vec!["pkg_a".to_string(), "module_a".to_string()]),
+        python::ModulePath(vec!["pkg_b".to_string(), "module_b".to_string()]),
+    ];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_nonexistent_module() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Module that doesn't exist in the project
+    let roots = vec![python::ModulePath(vec!["nonexistent".to_string()])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    // Should be empty graph
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_with_scripts() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
+
+    // Find what scripts.blah depends on
+    // Should include scripts.blah and foo.bar
+    let roots = vec![python::ModulePath(vec![
+        "scripts".to_string(),
+        "blah".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    // Should show box shape for scripts.blah
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_script_with_relative_imports() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
+
+    // Find what scripts.runner depends on
+    // Should include scripts.runner, scripts.utils.helper, and foo.bar
+    let roots = vec![python::ModulePath(vec![
+        "scripts".to_string(),
+        "runner".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    // Should show dependencies between scripts and to internal modules
+    insta::assert_snapshot!(output);
+}
+
+// CLI integration tests for file path support
+
+fn get_binary_path() -> PathBuf {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("target");
+    path.push("debug");
+    path.push("deptree-utils");
+    path
+}
+
+#[test]
+fn test_upstream_cli_with_script_file_path() {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let script_path = project_root.join("scripts").join("blah.py");
+
+    let output = Command::new(get_binary_path())
+        .arg("python-upstream")
+        .arg(&project_root)
+        .arg("--upstream")
+        .arg(script_path.to_str().expect("Invalid path"))
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        output.status.success(),
+        "Command failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    insta::assert_snapshot!(stdout);
+}
+
+#[test]
+fn test_upstream_cli_with_internal_module_file_path() {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let module_path = project_root.join("src").join("foo").join("bar.py");
+
+    let output = Command::new(get_binary_path())
+        .arg("python-upstream")
+        .arg(&project_root)
+        .arg("--upstream")
+        .arg(module_path.to_str().expect("Invalid path"))
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        output.status.success(),
+        "Command failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    insta::assert_snapshot!(stdout);
+}
+
+#[test]
+fn test_upstream_cli_with_relative_file_path() {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    // Change to project directory and use relative path
+    let output = Command::new(get_binary_path())
+        .current_dir(&project_root)
+        .arg("python-upstream")
+        .arg(".")
+        .arg("--upstream")
+        .arg("scripts/blah.py")
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        output.status.success(),
+        "Command failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    insta::assert_snapshot!(stdout);
+}
+
+#[test]
+fn test_upstream_cli_with_mixed_inputs() {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let script_path = project_root.join("scripts").join("blah.py");
+
+    // Mix file path and dotted name
+    let output = Command::new(get_binary_path())
+        .arg("python-upstream")
+        .arg(&project_root)
+        .arg("--upstream-module")
+        .arg(script_path.to_str().expect("Invalid path"))
+        .arg("--upstream-module")
+        .arg("foo.bar")
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(
+        output.status.success(),
+        "Command failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    insta::assert_snapshot!(stdout);
+}
+
+#[test]
+fn test_upstream_cli_with_nonexistent_file() {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let nonexistent_path = project_root.join("scripts").join("nonexistent.py");
+
+    let output = Command::new(get_binary_path())
+        .arg("python-upstream")
+        .arg(&project_root)
+        .arg("--upstream")
+        .arg(nonexistent_path.to_str().expect("Invalid path"))
+        .output()
+        .expect("Failed to execute command");
+
+    // Should fail with error message
+    assert!(!output.status.success(), "Command should have failed");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does not exist"),
+        "Error message should mention file doesn't exist"
+    );
 }

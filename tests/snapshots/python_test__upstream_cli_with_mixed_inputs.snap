@@ -1,0 +1,11 @@
+---
+source: tests/python_test.rs
+expression: stdout
+---
+digraph dependencies {
+    rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
+    "foo.bar";
+    "scripts.blah" [shape=box];
+    "scripts.blah" -> "foo.bar";
+}
