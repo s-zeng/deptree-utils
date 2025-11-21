@@ -13,15 +13,6 @@ use walkdir::WalkDir;
 /// Errors that can occur during Python dependency analysis
 #[derive(Error, Debug)]
 pub enum PythonAnalysisError {
-    #[error("Failed to read file {path}: {source}")]
-    IoError {
-        path: PathBuf,
-        source: std::io::Error,
-    },
-
-    #[error("Failed to parse Python file {path}: {message}")]
-    ParseError { path: PathBuf, message: String },
-
     #[error("Invalid project root: {0}")]
     InvalidRoot(PathBuf),
 }
@@ -239,17 +230,21 @@ pub fn analyze_project(root: &Path) -> Result<DependencyGraph, PythonAnalysisErr
 
     // Analyze each module's imports
     for (module_path, file_path) in &modules {
-        let source =
-            std::fs::read_to_string(file_path).map_err(|e| PythonAnalysisError::IoError {
-                path: file_path.clone(),
-                source: e,
-            })?;
+        let source = match std::fs::read_to_string(file_path) {
+            Ok(source) => source,
+            Err(e) => {
+                eprintln!("Warning: Skipping file {}: {}", file_path.display(), e);
+                continue;
+            }
+        };
 
-        let imports =
-            extract_imports(&source).map_err(|message| PythonAnalysisError::ParseError {
-                path: file_path.clone(),
-                message,
-            })?;
+        let imports = match extract_imports(&source) {
+            Ok(imports) => imports,
+            Err(message) => {
+                eprintln!("Warning: Skipping unparseable file {}: {}", file_path.display(), message);
+                continue;
+            }
+        };
 
         // Ensure the module exists in the graph even if it has no deps
         graph.get_or_create_node(module_path.clone());

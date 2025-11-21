@@ -1,0 +1,10 @@
+---
+source: tests/python_test.rs
+expression: dot_output
+---
+digraph dependencies {
+    rankdir=LR;
+    "another_valid";
+    "valid_module";
+    "another_valid" -> "valid_module";
+}

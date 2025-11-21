@@ -42,3 +42,18 @@ fn test_init_file_represents_package() {
     // __init__.py should represent the package itself, not "pkg_a.__init__"
     insta::assert_snapshot!(module.unwrap().to_dotted());
 }
+
+#[test]
+fn test_skip_unparseable_files() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("unparseable_python_project");
+
+    // Should succeed despite malformed.py containing invalid syntax
+    let graph = python::analyze_project(&root).expect("Failed to analyze project with unparseable files");
+    let dot_output = graph.to_dot();
+
+    // Snapshot should only contain valid_module and another_valid, not malformed
+    insta::assert_snapshot!(dot_output);
+}
