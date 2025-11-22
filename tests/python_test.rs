@@ -552,7 +552,7 @@ fn test_upstream_cli_with_script_file_path() {
     let script_path = project_root.join("scripts").join("blah.py");
 
     let output = Command::new(get_binary_path())
-        .arg("python-upstream")
+        .arg("python")
         .arg(&project_root)
         .arg("--upstream")
         .arg(script_path.to_str().expect("Invalid path"))
@@ -579,7 +579,7 @@ fn test_upstream_cli_with_internal_module_file_path() {
     let module_path = project_root.join("src").join("foo").join("bar.py");
 
     let output = Command::new(get_binary_path())
-        .arg("python-upstream")
+        .arg("python")
         .arg(&project_root)
         .arg("--upstream")
         .arg(module_path.to_str().expect("Invalid path"))
@@ -606,7 +606,7 @@ fn test_upstream_cli_with_relative_file_path() {
     // Change to project directory and use relative path
     let output = Command::new(get_binary_path())
         .current_dir(&project_root)
-        .arg("python-upstream")
+        .arg("python")
         .arg(".")
         .arg("--upstream")
         .arg("scripts/blah.py")
@@ -634,7 +634,7 @@ fn test_upstream_cli_with_mixed_inputs() {
 
     // Mix file path and dotted name
     let output = Command::new(get_binary_path())
-        .arg("python-upstream")
+        .arg("python")
         .arg(&project_root)
         .arg("--upstream-module")
         .arg(script_path.to_str().expect("Invalid path"))
@@ -663,7 +663,7 @@ fn test_upstream_cli_with_nonexistent_file() {
     let nonexistent_path = project_root.join("scripts").join("nonexistent.py");
 
     let output = Command::new(get_binary_path())
-        .arg("python-upstream")
+        .arg("python")
         .arg(&project_root)
         .arg("--upstream")
         .arg(nonexistent_path.to_str().expect("Invalid path"))

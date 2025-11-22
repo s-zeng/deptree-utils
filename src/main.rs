@@ -129,33 +129,6 @@ enum Command {
         #[arg(long)]
         downstream_file: Option<PathBuf>,
 
-        /// Include only nodes within distance N from specified modules
-        #[arg(long)]
-        max_rank: Option<usize>,
-
-        /// Glob patterns to exclude from script discovery (can be repeated)
-        #[arg(long = "exclude-scripts")]
-        exclude_scripts: Vec<String>,
-
-        /// Include orphan nodes (nodes with no dependencies) in DOT output
-        #[arg(long)]
-        include_orphans: bool,
-    },
-
-    /// Analyze upstream dependencies (what a module depends on)
-    PythonUpstream {
-        /// Path to the Python project root
-        #[arg()]
-        path: PathBuf,
-
-        /// Python source root directory (defaults to auto-detection)
-        #[arg(long, short = 's')]
-        source_root: Option<PathBuf>,
-
-        /// Output format: 'dot', 'mermaid', or 'list' (default: dot)
-        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid", "list"])]
-        format: String,
-
         /// Comma-separated list of modules to find upstream dependencies for
         #[arg(long)]
         upstream: Option<String>,
@@ -197,22 +170,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             downstream,
             downstream_module,
             downstream_file,
+            upstream,
+            upstream_module,
+            upstream_file,
             max_rank,
             exclude_scripts,
             include_orphans,
         } => {
-            let graph = python::analyze_project(&path, source_root.as_deref(), &exclude_scripts)?;
+            // Determine the source root first (needed for parsing module inputs with file paths)
+            let actual_source_root = if let Some(explicit_root) = source_root.as_ref() {
+                explicit_root.clone()
+            } else {
+                python::detect_source_root(&path)?
+            };
 
-            // Collect module names from all three sources
-            let mut module_names: Vec<String> = Vec::new();
+            let graph =
+                python::analyze_project(&path, Some(&actual_source_root), &exclude_scripts)?;
+
+            // Collect downstream module inputs from all three sources
+            let mut downstream_inputs: Vec<String> = Vec::new();
 
             // From comma-separated list
             if let Some(csv) = downstream {
-                module_names.extend(csv.split(',').map(|s| s.trim().to_string()));
+                downstream_inputs.extend(csv.split(',').map(|s| s.trim().to_string()));
             }
 
             // From repeated --downstream-module flags
-            module_names.extend(downstream_module);
+            downstream_inputs.extend(downstream_module);
 
             // From file
             if let Some(file_path) = downstream_file {
@@ -222,7 +206,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "Error: --downstream-file expects a text file with module names (one per line), but got a Python file: {}\n\
                          Hint: If you want to analyze this module, use --downstream {} instead",
                         file_path.display(),
-                        file_path.to_str().unwrap_or("").trim_end_matches(".py")
+                        file_path.display()
                     ).into());
                 }
 
@@ -233,7 +217,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         e
                     )
                 })?;
-                module_names.extend(
+                downstream_inputs.extend(
+                    content
+                        .lines()
+                        .map(|line| line.trim())
+                        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                        .map(String::from),
+                );
+            }
+
+            // Collect upstream module inputs from all three sources
+            let mut upstream_inputs: Vec<String> = Vec::new();
+
+            // From comma-separated list
+            if let Some(csv) = upstream {
+                upstream_inputs.extend(csv.split(',').map(|s| s.trim().to_string()));
+            }
+
+            // From repeated --upstream-module flags
+            upstream_inputs.extend(upstream_module);
+
+            // From file
+            if let Some(file_path) = upstream_file {
+                // Check if user accidentally passed a Python source file instead of a list file
+                if file_path.extension().and_then(|s| s.to_str()) == Some("py") {
+                    return Err(format!(
+                        "Error: --upstream-file expects a text file with module names (one per line), but got a Python file: {}\n\
+                         Hint: Use --upstream {} instead",
+                        file_path.display(),
+                        file_path.display()
+                    ).into());
+                }
+
+                let content = std::fs::read_to_string(&file_path).map_err(|e| {
+                    format!(
+                        "Failed to read upstream file {}: {}",
+                        file_path.display(),
+                        e
+                    )
+                })?;
+                upstream_inputs.extend(
                     content
                         .lines()
                         .map(|line| line.trim())
@@ -250,18 +273,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => unreachable!("Invalid format validated by clap"),
             };
 
-            // If downstream modules are specified, perform downstream analysis
-            if !module_names.is_empty() {
-                let module_paths: Vec<python::ModulePath> = module_names
-                    .iter()
-                    .map(|name| python::ModulePath(name.split('.').map(String::from).collect()))
-                    .collect();
+            // Determine what kind of analysis to perform
+            let has_downstream = !downstream_inputs.is_empty();
+            let has_upstream = !upstream_inputs.is_empty();
 
-                let downstream_modules = graph.find_downstream(&module_paths, max_rank);
+            if has_downstream || has_upstream {
+                // Parse downstream module inputs (can be dotted names or file paths)
+                let downstream_paths: Option<Vec<python::ModulePath>> = if has_downstream {
+                    let paths: Result<Vec<python::ModulePath>, String> = downstream_inputs
+                        .iter()
+                        .map(|input| parse_module_input(input, &path, &actual_source_root))
+                        .collect();
+                    Some(paths?)
+                } else {
+                    None
+                };
 
-                // Convert HashMap to HashSet for filtered output methods
-                let filter: std::collections::HashSet<python::ModulePath> =
-                    downstream_modules.keys().cloned().collect();
+                // Parse upstream module inputs (can be dotted names or file paths)
+                let upstream_paths: Option<Vec<python::ModulePath>> = if has_upstream {
+                    let paths: Result<Vec<python::ModulePath>, String> = upstream_inputs
+                        .iter()
+                        .map(|input| parse_module_input(input, &path, &actual_source_root))
+                        .collect();
+                    Some(paths?)
+                } else {
+                    None
+                };
+
+                // Compute the filter set based on which flags are provided
+                let filter: std::collections::HashSet<python::ModulePath> = match (
+                    downstream_paths,
+                    upstream_paths,
+                ) {
+                    (Some(down_paths), Some(up_paths)) => {
+                        // Both downstream and upstream specified: compute intersection
+                        let downstream_modules = graph.find_downstream(&down_paths, max_rank);
+                        let upstream_modules = graph.find_upstream(&up_paths, max_rank);
+
+                        let downstream_set: std::collections::HashSet<_> =
+                            downstream_modules.keys().cloned().collect();
+                        let upstream_set: std::collections::HashSet<_> =
+                            upstream_modules.keys().cloned().collect();
+
+                        downstream_set
+                            .intersection(&upstream_set)
+                            .cloned()
+                            .collect()
+                    }
+                    (Some(down_paths), None) => {
+                        // Only downstream specified
+                        let downstream_modules = graph.find_downstream(&down_paths, max_rank);
+                        downstream_modules.keys().cloned().collect()
+                    }
+                    (None, Some(up_paths)) => {
+                        // Only upstream specified
+                        let upstream_modules = graph.find_upstream(&up_paths, max_rank);
+                        upstream_modules.keys().cloned().collect()
+                    }
+                    (None, None) => unreachable!("Already checked has_downstream || has_upstream"),
+                };
 
                 match output_format {
                     python::OutputFormat::Dot => {
@@ -284,107 +354,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("{}", graph.to_mermaid(include_orphans));
                     }
                     python::OutputFormat::List => {
-                        return Err("List format requires --downstream to be specified".into());
+                        return Err(
+                            "List format requires --downstream or --upstream to be specified".into()
+                        );
                     }
-                }
-            }
-        }
-
-        Command::PythonUpstream {
-            path,
-            source_root,
-            format,
-            upstream,
-            upstream_module,
-            upstream_file,
-            max_rank,
-            exclude_scripts,
-            include_orphans,
-        } => {
-            // Determine the source root first (needed for parsing module inputs)
-            let actual_source_root = if let Some(explicit_root) = source_root.as_ref() {
-                explicit_root.clone()
-            } else {
-                python::detect_source_root(&path)?
-            };
-
-            let graph =
-                python::analyze_project(&path, Some(&actual_source_root), &exclude_scripts)?;
-
-            // Collect module names/paths from all three sources
-            let mut module_inputs: Vec<String> = Vec::new();
-
-            // From comma-separated list
-            if let Some(csv) = upstream {
-                module_inputs.extend(csv.split(',').map(|s| s.trim().to_string()));
-            }
-
-            // From repeated --upstream-module flags
-            module_inputs.extend(upstream_module);
-
-            // From file
-            if let Some(file_path) = upstream_file {
-                // Check if user accidentally passed a Python source file instead of a list file
-                if file_path.extension().and_then(|s| s.to_str()) == Some("py") {
-                    return Err(format!(
-                        "Error: --upstream-file expects a text file with module names (one per line), but got a Python file: {}\n\
-                         Hint: Use --upstream {} instead",
-                        file_path.display(),
-                        file_path.display()
-                    ).into());
-                }
-
-                let content = std::fs::read_to_string(&file_path).map_err(|e| {
-                    format!(
-                        "Failed to read upstream file {}: {}",
-                        file_path.display(),
-                        e
-                    )
-                })?;
-                module_inputs.extend(
-                    content
-                        .lines()
-                        .map(|line| line.trim())
-                        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                        .map(String::from),
-                );
-            }
-
-            // Upstream modules must be specified
-            if module_inputs.is_empty() {
-                return Err("No modules specified for upstream analysis. Use --upstream, --upstream-module, or --upstream-file.".into());
-            }
-
-            // Parse module inputs (can be dotted names or file paths)
-            let module_paths: Result<Vec<python::ModulePath>, String> = module_inputs
-                .iter()
-                .map(|input| parse_module_input(input, &path, &actual_source_root))
-                .collect();
-            let module_paths = module_paths?;
-
-            let upstream_modules = graph.find_upstream(&module_paths, max_rank);
-
-            // Convert HashMap to HashSet for filtered output methods
-            let filter: std::collections::HashSet<python::ModulePath> =
-                upstream_modules.keys().cloned().collect();
-
-            // Output in the specified format
-            let output_format = match format.as_str() {
-                "dot" => python::OutputFormat::Dot,
-                "mermaid" => python::OutputFormat::Mermaid,
-                "list" => python::OutputFormat::List,
-                _ => unreachable!("Invalid format validated by clap"),
-            };
-
-            match output_format {
-                python::OutputFormat::Dot => {
-                    println!("{}", graph.to_dot_filtered(&filter, include_orphans));
-                }
-                python::OutputFormat::Mermaid => {
-                    println!("{}", graph.to_mermaid_filtered(&filter, include_orphans));
-                }
-                python::OutputFormat::List => {
-                    println!("{}", graph.to_list_filtered(&filter));
                 }
             }
         }

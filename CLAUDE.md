@@ -107,7 +107,7 @@ Orphan nodes are typically:
 - Dead code that's not connected to the rest of the project
 - New modules that haven't been integrated yet
 
-This flag is available for both `python` and `python-upstream` commands, and works with both DOT and Mermaid output formats.
+This flag is available for all analysis modes (full graph, downstream, and upstream), and works with both DOT and Mermaid output formats.
 
 #### Source Root Detection
 The analyzer automatically detects the Python source root to correctly handle projects with different layouts.
@@ -198,6 +198,32 @@ All three input methods can be combined in a single command. The module lists wi
 - `--format mermaid`: Mermaid flowchart format for the downstream dependency graph
 - `--format list`: Sorted, newline-separated list of module names
 
+**File path support:**
+Instead of using dotted module names, you can directly specify file paths to Python files:
+
+```bash
+# Using a script file path
+deptree-utils python ./my-project --downstream scripts/my_script.py
+
+# Using an internal module file path
+deptree-utils python ./my-project --downstream src/pkg_a/module_a.py
+
+# Using relative paths (when running from project directory)
+cd my-project
+deptree-utils python . --downstream bin/my_script.py
+
+# Mix file paths and dotted names
+deptree-utils python ./my-project \
+  --downstream-module scripts/runner.py \
+  --downstream-module pkg_a.module_a
+```
+
+File paths can be:
+- Absolute or relative paths
+- Paths to scripts outside the source root (e.g., `scripts/`, `bin/`)
+- Paths to internal modules inside the source root (e.g., `src/pkg_a/module_a.py`)
+- Mixed with dotted module names in the same command
+
 **Limit by distance (max-rank):**
 You can limit the output to only include nodes within a specific distance from the specified modules using `--max-rank`:
 
@@ -224,18 +250,18 @@ Find all modules that a given set of modules depends on (upstream dependencies).
 **Basic usage via comma-separated list:**
 ```bash
 # Default: outputs DOT graph format
-deptree-utils python-upstream <path> --upstream pkg_a.module_a,pkg_b.module_b
+deptree-utils python <path> --upstream pkg_a.module_a,pkg_b.module_b
 
 # Output in Mermaid format
-deptree-utils python-upstream <path> --upstream pkg_a.module_a,pkg_b.module_b --format mermaid
+deptree-utils python <path> --upstream pkg_a.module_a,pkg_b.module_b --format mermaid
 
 # Output as a sorted, newline-separated list
-deptree-utils python-upstream <path> --upstream pkg_a.module_a,pkg_b.module_b --format list
+deptree-utils python <path> --upstream pkg_a.module_a,pkg_b.module_b --format list
 ```
 
 **Via repeated flags:**
 ```bash
-deptree-utils python-upstream <path> --upstream-module pkg_a.module_a --upstream-module pkg_b.module_b
+deptree-utils python <path> --upstream-module pkg_a.module_a --upstream-module pkg_b.module_b
 ```
 
 **Via file input:**
@@ -244,7 +270,7 @@ deptree-utils python-upstream <path> --upstream-module pkg_a.module_a --upstream
 echo "pkg_a.module_a" > modules.txt
 echo "pkg_b.module_b" >> modules.txt
 
-deptree-utils python-upstream <path> --upstream-file modules.txt
+deptree-utils python <path> --upstream-file modules.txt
 ```
 
 **Combined usage:**
@@ -255,17 +281,17 @@ Instead of using dotted module names, you can directly specify file paths to Pyt
 
 ```bash
 # Using a script file path
-deptree-utils python-upstream ./my-project --upstream scripts/my_script.py
+deptree-utils python ./my-project --upstream scripts/my_script.py
 
 # Using an internal module file path
-deptree-utils python-upstream ./my-project --upstream src/pkg_a/module_a.py
+deptree-utils python ./my-project --upstream src/pkg_a/module_a.py
 
 # Using relative paths (when running from project directory)
 cd my-project
-deptree-utils python-upstream . --upstream bin/my_script.py
+deptree-utils python . --upstream bin/my_script.py
 
 # Mix file paths and dotted names
-deptree-utils python-upstream ./my-project \
+deptree-utils python ./my-project \
   --upstream-module scripts/runner.py \
   --upstream-module pkg_a.module_a
 ```
@@ -292,13 +318,13 @@ You can limit the output to only include nodes within a specific distance from t
 
 ```bash
 # Include only direct dependencies (distance 1)
-deptree-utils python-upstream <path> --upstream main --max-rank 1
+deptree-utils python <path> --upstream main --max-rank 1
 
 # Include modules up to 2 edges away
-deptree-utils python-upstream <path> --upstream main --max-rank 2 --format mermaid
+deptree-utils python <path> --upstream main --max-rank 2 --format mermaid
 
 # Works with list format too
-deptree-utils python-upstream <path> --upstream main --max-rank 1 --format list
+deptree-utils python <path> --upstream main --max-rank 1 --format list
 ```
 
 Distance is measured as the minimum number of dependency edges from any of the specified modules. For example:
@@ -310,19 +336,19 @@ Distance is measured as the minimum number of dependency edges from any of the s
 **Examples:**
 ```bash
 # Find everything that main.py depends on (default DOT format)
-deptree-utils python-upstream ./my-project --upstream main
+deptree-utils python ./my-project --upstream main
 
 # Output in Mermaid format
-deptree-utils python-upstream ./my-project --upstream main --format mermaid
+deptree-utils python ./my-project --upstream main --format mermaid
 
 # Output as list format
-deptree-utils python-upstream ./my-project --upstream main --format list
+deptree-utils python ./my-project --upstream main --format list
 
 # Visualize DOT output with Graphviz
-deptree-utils python-upstream ./my-project --upstream main --format dot | dot -Tpng > deps.png
+deptree-utils python ./my-project --upstream main --format dot | dot -Tpng > deps.png
 
 # Embed Mermaid output in documentation
-deptree-utils python-upstream ./my-project --upstream main --format mermaid > docs/dependencies.mmd
+deptree-utils python ./my-project --upstream main --format mermaid > docs/dependencies.mmd
 ```
 
 **Use cases:**
@@ -333,15 +359,35 @@ deptree-utils python-upstream ./my-project --upstream main --format mermaid > do
 
 **With explicit source root:**
 ```bash
-deptree-utils python-upstream ./my-project --source-root ./my-project/src --upstream main
+deptree-utils python ./my-project --source-root ./my-project/src --upstream main
 ```
 
 **Script exclusion:**
-The `--exclude-scripts` flag works the same way as in the `python` command:
+The `--exclude-scripts` flag works the same way for all analysis modes:
 
 ```bash
-deptree-utils python-upstream ./my-project --upstream main --exclude-scripts "old_scripts"
+deptree-utils python ./my-project --upstream main --exclude-scripts "old_scripts"
 ```
+
+**Combined downstream and upstream analysis:**
+You can use both `--downstream` and `--upstream` flags together to find the intersection of modules:
+
+```bash
+# Find modules that are both downstream of module_a AND upstream of main
+# (i.e., modules in the path from module_a to main)
+deptree-utils python ./my-project \
+  --downstream pkg_a.module_a \
+  --upstream main
+
+# This finds modules that:
+# 1. Depend on pkg_a.module_a (downstream), AND
+# 2. Are depended on by main (upstream)
+```
+
+This is useful for:
+- Finding the dependency path between two modules
+- Analyzing the impact zone of a change that affects a specific module
+- Understanding which modules connect two different parts of the codebase
 
 #### Script Discovery Outside Source Root
 The analyzer automatically discovers and includes Python scripts outside the source root (e.g., `scripts/`, `tools/`) in dependency analysis. Scripts are treated as first-class citizens in the dependency graph and can import internal modules.
