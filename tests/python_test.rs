@@ -909,3 +909,107 @@ fn test_orphan_filtering_with_max_rank() {
     // in the filtered graph (no edges within the filter)
     insta::assert_snapshot!(output);
 }
+
+#[test]
+fn test_downstream_highlighted_dot() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that depend on pkg_b
+    let roots = vec![python::ModulePath(vec!["pkg_b".to_string()])];
+    let downstream = graph.find_downstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_dot_highlighted(&highlight_set, false);
+
+    // Should show full graph with pkg_b and pkg_a.module_a highlighted
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_downstream_highlighted_mermaid() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that depend on pkg_b.module_b
+    let roots = vec![python::ModulePath(vec![
+        "pkg_b".to_string(),
+        "module_b".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_mermaid_highlighted(&highlight_set, false);
+
+    // Should show full graph with pkg_b.module_b and main highlighted in blue
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_highlighted_dot() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that main depends on
+    let roots = vec![python::ModulePath(vec!["main".to_string()])];
+    let upstream = graph.find_upstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let output = graph.to_dot_highlighted(&highlight_set, false);
+
+    // Should show full graph with main, pkg_b.module_b, pkg_a.module_a highlighted
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_highlighted_mermaid() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that main depends on
+    let roots = vec![python::ModulePath(vec!["main".to_string()])];
+    let upstream = graph.find_upstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let output = graph.to_mermaid_highlighted(&highlight_set, false);
+
+    // Should show full graph with main, pkg_b.module_b, pkg_a.module_a highlighted in blue
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_highlighted_with_scripts() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
+
+    // Find what scripts.blah depends on (upstream)
+    let roots = vec![python::ModulePath(vec![
+        "scripts".to_string(),
+        "blah".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let output = graph.to_dot_highlighted(&highlight_set, false);
+
+    // Should show full graph with scripts.blah (box shape) and foo.bar highlighted
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_highlighted_orphans_included() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Highlight pkg_a.module_a and include orphans
+    let roots = vec![python::ModulePath(vec![
+        "pkg_a".to_string(),
+        "module_a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_dot_highlighted(&highlight_set, true);
+
+    // Should show full graph including orphans with highlighting
+    insta::assert_snapshot!(output);
+}

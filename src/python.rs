@@ -340,6 +340,87 @@ impl DependencyGraph {
         output
     }
 
+    /// Convert the full graph to DOT format with highlighted nodes
+    /// Nodes in the highlight_set are visually distinguished with a light blue background
+    pub fn to_dot_highlighted(
+        &self,
+        highlight_set: &HashSet<ModulePath>,
+        include_orphans: bool,
+    ) -> String {
+        let mut output = String::from("digraph dependencies {\n");
+        output.push_str("    rankdir=LR;\n");
+        output.push_str(
+            "    // Note: Scripts (files outside source root) are shown with box shape\n",
+        );
+        output.push_str("    // Note: Highlighted nodes are shown with light blue background\n");
+
+        // Collect and sort nodes for deterministic output
+        let mut nodes: Vec<_> = self.graph.node_indices().collect();
+        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out orphan nodes unless explicitly requested
+        if !include_orphans {
+            nodes.retain(|idx| {
+                let has_incoming = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Incoming)
+                    .count()
+                    > 0;
+                let has_outgoing = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Outgoing)
+                    .count()
+                    > 0;
+                has_incoming || has_outgoing
+            });
+        }
+
+        // Add nodes with highlighting
+        for idx in &nodes {
+            let module = &self.graph[*idx];
+            let is_highlighted = highlight_set.contains(module);
+
+            if self.is_script(module) {
+                // Scripts get a different visual style (box shape)
+                if is_highlighted {
+                    output.push_str(&format!(
+                        "    \"{}\" [shape=box, fillcolor=lightblue, style=filled];\n",
+                        module.to_dotted()
+                    ));
+                } else {
+                    output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
+                }
+            } else {
+                // Regular modules
+                if is_highlighted {
+                    output.push_str(&format!(
+                        "    \"{}\" [fillcolor=lightblue, style=filled];\n",
+                        module.to_dotted()
+                    ));
+                } else {
+                    output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
+                }
+            }
+        }
+
+        // Collect and sort edges for deterministic output
+        let mut edges: Vec<_> = self
+            .graph
+            .edge_indices()
+            .filter_map(|e| self.graph.edge_endpoints(e))
+            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+            .collect();
+        edges.sort();
+
+        // Add edges
+        for (from_name, to_name) in edges {
+            output.push_str(&format!("    \"{}\" -> \"{}\";\n", from_name, to_name));
+        }
+
+        output.push_str("}\n");
+        output
+    }
+
     /// Convert the graph to Mermaid flowchart format
     pub fn to_mermaid(&self, include_orphans: bool) -> String {
         let mut output = String::from("flowchart TD\n");
@@ -444,6 +525,159 @@ impl DependencyGraph {
 
             output.push_str(&format!("    {} --> {}\n", from_def, to_def));
         }
+
+        output
+    }
+
+    /// Convert the full graph to Mermaid flowchart format with highlighted nodes
+    /// Nodes in the highlight_set are visually distinguished with blue styling
+    pub fn to_mermaid_highlighted(
+        &self,
+        highlight_set: &HashSet<ModulePath>,
+        include_orphans: bool,
+    ) -> String {
+        let mut output = String::from("flowchart TD\n");
+
+        // Collect and sort nodes for deterministic output
+        let mut nodes: Vec<_> = self.graph.node_indices().collect();
+        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out orphan nodes unless explicitly requested
+        if !include_orphans {
+            nodes.retain(|idx| {
+                let has_incoming = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Incoming)
+                    .count()
+                    > 0;
+                let has_outgoing = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Outgoing)
+                    .count()
+                    > 0;
+                has_incoming || has_outgoing
+            });
+        }
+
+        // Collect and sort edges for deterministic output
+        let mut edges: Vec<_> = self
+            .graph
+            .edge_indices()
+            .filter_map(|e| self.graph.edge_endpoints(e))
+            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+            .collect();
+        edges.sort();
+
+        // Create a set of nodes that appear in edges for efficient lookup
+        let nodes_in_edges: std::collections::HashSet<String> = edges
+            .iter()
+            .flat_map(|(from, to)| vec![from.clone(), to.clone()])
+            .collect();
+
+        // Add nodes that don't appear in edges (orphans if include_orphans is true)
+        for idx in &nodes {
+            let module = &self.graph[*idx];
+            let module_name = module.to_dotted();
+
+            // Only output standalone node definitions for nodes without edges
+            if !nodes_in_edges.contains(&module_name) {
+                let node_id = sanitize_mermaid_id(&module_name);
+                let is_highlighted = highlight_set.contains(module);
+
+                if self.is_script(module) {
+                    // Scripts get rectangle shape
+                    if is_highlighted {
+                        output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
+                    } else {
+                        output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
+                    }
+                } else {
+                    // Modules get rounded rectangle shape
+                    if is_highlighted {
+                        output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
+                    } else {
+                        output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
+                    }
+                }
+
+                // Apply highlighting class if needed
+                if is_highlighted {
+                    output.push_str(&format!("    class {} highlighted\n", node_id));
+                }
+            }
+        }
+
+        // Track which nodes have been assigned the highlighted class to avoid duplicates
+        let mut highlighted_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Add edges (which implicitly define nodes)
+        for (from_name, to_name) in edges {
+            let from_id = sanitize_mermaid_id(&from_name);
+            let to_id = sanitize_mermaid_id(&to_name);
+
+            // Determine shapes based on whether modules are scripts
+            let from_module = self.node_indices.get(&ModulePath(
+                from_name.split('.').map(String::from).collect(),
+            ));
+            let to_module = self.node_indices.get(&ModulePath(
+                to_name.split('.').map(String::from).collect(),
+            ));
+
+            let from_is_script = from_module
+                .map(|idx| {
+                    let m = &self.graph[*idx];
+                    self.is_script(m)
+                })
+                .unwrap_or(false);
+
+            let to_is_script = to_module
+                .map(|idx| {
+                    let m = &self.graph[*idx];
+                    self.is_script(m)
+                })
+                .unwrap_or(false);
+
+            let from_shape = if from_is_script {
+                format!("{}[\"{}\"", from_id, from_name)
+            } else {
+                format!("{}(\"{}\"", from_id, from_name)
+            };
+
+            let to_shape = if to_is_script {
+                format!("{}[\"{}\"", to_id, to_name)
+            } else {
+                format!("{}(\"{}\"", to_id, to_name)
+            };
+
+            // Close the shapes
+            let from_def = if from_shape.contains('[') {
+                format!("{}]", from_shape)
+            } else {
+                format!("{})", from_shape)
+            };
+
+            let to_def = if to_shape.contains('[') {
+                format!("{}]", to_shape)
+            } else {
+                format!("{})", to_shape)
+            };
+
+            output.push_str(&format!("    {} --> {}\n", from_def, to_def));
+
+            // Apply highlighting class to nodes that appear in edges (avoid duplicates)
+            let from_module_path = ModulePath(from_name.split('.').map(String::from).collect());
+            let to_module_path = ModulePath(to_name.split('.').map(String::from).collect());
+
+            if highlight_set.contains(&from_module_path) && highlighted_nodes.insert(from_id.clone()) {
+                output.push_str(&format!("    class {} highlighted\n", from_id));
+            }
+            if highlight_set.contains(&to_module_path) && highlighted_nodes.insert(to_id.clone()) {
+                output.push_str(&format!("    class {} highlighted\n", to_id));
+            }
+        }
+
+        // Add the highlighted class definition at the end
+        output.push_str("    classDef highlighted fill:#bbdefb,stroke:#1976d2,stroke-width:2px\n");
 
         output
     }

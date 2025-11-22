@@ -152,6 +152,10 @@ enum Command {
         /// Include orphan nodes (nodes with no dependencies) in DOT output
         #[arg(long)]
         include_orphans: bool,
+
+        /// Show full graph with highlighted nodes instead of filtering (requires --downstream or --upstream)
+        #[arg(long)]
+        show_all: bool,
     },
 }
 
@@ -176,6 +180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_rank,
             exclude_scripts,
             include_orphans,
+            show_all,
         } => {
             // Determine the source root first (needed for parsing module inputs with file paths)
             let actual_source_root = if let Some(explicit_root) = source_root.as_ref() {
@@ -277,6 +282,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let has_downstream = !downstream_inputs.is_empty();
             let has_upstream = !upstream_inputs.is_empty();
 
+            // Validate show_all flag usage
+            if show_all && !has_downstream && !has_upstream {
+                return Err(
+                    "--show-all requires --downstream or --upstream to be specified".into()
+                );
+            }
+
             if has_downstream || has_upstream {
                 // Parse downstream module inputs (can be dotted names or file paths)
                 let downstream_paths: Option<Vec<python::ModulePath>> = if has_downstream {
@@ -335,12 +347,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 match output_format {
                     python::OutputFormat::Dot => {
-                        println!("{}", graph.to_dot_filtered(&filter, include_orphans));
+                        if show_all {
+                            println!("{}", graph.to_dot_highlighted(&filter, include_orphans));
+                        } else {
+                            println!("{}", graph.to_dot_filtered(&filter, include_orphans));
+                        }
                     }
                     python::OutputFormat::Mermaid => {
-                        println!("{}", graph.to_mermaid_filtered(&filter, include_orphans));
+                        if show_all {
+                            println!("{}", graph.to_mermaid_highlighted(&filter, include_orphans));
+                        } else {
+                            println!("{}", graph.to_mermaid_filtered(&filter, include_orphans));
+                        }
                     }
                     python::OutputFormat::List => {
+                        if show_all {
+                            return Err(
+                                "--show-all cannot be used with --format list".into()
+                            );
+                        }
                         println!("{}", graph.to_list_filtered(&filter));
                     }
                 }

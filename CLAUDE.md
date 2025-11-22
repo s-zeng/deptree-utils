@@ -244,6 +244,35 @@ Distance is measured as the minimum number of dependency edges from any of the s
 - Distance 2: Modules that depend on modules at distance 1
 - And so on...
 
+**Show full graph with highlighting:**
+By default, `--downstream` and `--upstream` filter the output to show only the relevant subgraph. Use `--show-all` to show the **full dependency graph** while visually highlighting the filtered modules:
+
+```bash
+# Show full graph with downstream modules highlighted in light blue
+deptree-utils python <path> --downstream pkg_a.module_a --show-all
+
+# Show full graph with upstream modules highlighted in Mermaid format
+deptree-utils python <path> --upstream main --show-all --format mermaid
+
+# Works with max-rank too
+deptree-utils python <path> --downstream pkg_a.module_a --show-all --max-rank 2
+```
+
+**Visual styling:**
+- **DOT format**: Highlighted nodes have light blue background (`fillcolor=lightblue, style=filled`)
+- **Mermaid format**: Highlighted nodes have blue styling (`fill:#bbdefb,stroke:#1976d2,stroke-width:2px`)
+- Scripts maintain their distinct shape (box/rectangle) even when highlighted
+
+**Restrictions:**
+- `--show-all` requires either `--downstream` or `--upstream` to be specified
+- `--show-all` cannot be used with `--format list` (list format only makes sense for filtered output)
+
+**Use cases:**
+- Understanding the context of a module within the entire codebase
+- Visualizing the scope of impact while seeing the full architecture
+- Identifying where filtered modules fit in the overall dependency structure
+- Creating documentation that shows both the full graph and areas of interest
+
 #### Upstream Dependency Analysis
 Find all modules that a given set of modules depends on (upstream dependencies). **By default, outputs a dependency graph** (DOT or Mermaid format) showing only the specified modules and all modules they transitively depend on (the upstream dependency tree).
 
