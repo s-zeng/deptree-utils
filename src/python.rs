@@ -131,13 +131,22 @@ pub enum Import {
 
 /// Extract imports from a Python source file
 fn extract_imports(source: &str) -> Result<Vec<Import>, String> {
-    use ruff_python_ast::{Stmt, StmtImport, StmtImportFrom};
-
     let parsed = parse_module(source).map_err(|e| e.to_string())?;
 
     let mut imports = Vec::new();
 
-    for stmt in parsed.suite() {
+    // Recursively visit all statements to capture imports at all nesting levels
+    visit_stmts(parsed.suite(), &mut imports);
+
+    Ok(imports)
+}
+
+/// Recursively visit all statements in the AST to extract imports
+fn visit_stmts(stmts: &[ruff_python_ast::Stmt], imports: &mut Vec<Import>) {
+    use ruff_python_ast::{Stmt, StmtImport, StmtImportFrom};
+
+    for stmt in stmts {
+        // Extract imports from current statement
         match stmt {
             Stmt::Import(StmtImport { names, .. }) => {
                 for alias in names {
@@ -162,9 +171,56 @@ fn extract_imports(source: &str) -> Result<Vec<Import>, String> {
             }
             _ => {}
         }
-    }
 
-    Ok(imports)
+        // Recursively visit nested statement bodies
+        match stmt {
+            Stmt::FunctionDef(func) => {
+                visit_stmts(&func.body, imports);
+            }
+            Stmt::ClassDef(class) => {
+                visit_stmts(&class.body, imports);
+            }
+            Stmt::If(if_stmt) => {
+                visit_stmts(&if_stmt.body, imports);
+                // Visit elif and else clauses
+                for clause in &if_stmt.elif_else_clauses {
+                    visit_stmts(&clause.body, imports);
+                }
+            }
+            Stmt::While(while_stmt) => {
+                visit_stmts(&while_stmt.body, imports);
+                visit_stmts(&while_stmt.orelse, imports);
+            }
+            Stmt::For(for_stmt) => {
+                visit_stmts(&for_stmt.body, imports);
+                visit_stmts(&for_stmt.orelse, imports);
+            }
+            Stmt::With(with_stmt) => {
+                visit_stmts(&with_stmt.body, imports);
+            }
+            Stmt::Try(try_stmt) => {
+                use ruff_python_ast::ExceptHandler;
+
+                visit_stmts(&try_stmt.body, imports);
+                // Visit exception handler bodies
+                for handler in &try_stmt.handlers {
+                    match handler {
+                        ExceptHandler::ExceptHandler(except) => {
+                            visit_stmts(&except.body, imports);
+                        }
+                    }
+                }
+                visit_stmts(&try_stmt.orelse, imports);
+                visit_stmts(&try_stmt.finalbody, imports);
+            }
+            Stmt::Match(match_stmt) => {
+                for case in &match_stmt.cases {
+                    visit_stmts(&case.body, imports);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The dependency graph of Python modules

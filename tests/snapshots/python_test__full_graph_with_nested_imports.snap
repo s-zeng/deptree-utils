@@ -1,0 +1,18 @@
+---
+source: tests/python_test.rs
+expression: dot_output
+---
+digraph dependencies {
+    rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
+    "another_module";
+    "base_module";
+    "class_imports";
+    "conditional_imports";
+    "function_imports";
+    "class_imports" -> "base_module";
+    "conditional_imports" -> "another_module";
+    "conditional_imports" -> "base_module";
+    "function_imports" -> "another_module";
+    "function_imports" -> "base_module";
+}

@@ -374,6 +374,80 @@ fn test_upstream_script_with_relative_imports() {
     insta::assert_snapshot!(output);
 }
 
+// Tests for nested imports (imports inside functions, classes, conditionals, etc.)
+
+#[test]
+fn test_function_level_imports() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("nested_imports_project");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+
+    // function_imports should depend on both base_module (top-level) and another_module (function-level)
+    let roots = vec![python::ModulePath(vec!["function_imports".to_string()])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    // Should include function_imports, base_module, and another_module
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_class_method_imports() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("nested_imports_project");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+
+    // class_imports should depend on base_module (imported in method)
+    let roots = vec![python::ModulePath(vec!["class_imports".to_string()])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    // Should include class_imports and base_module
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_conditional_imports() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("nested_imports_project");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+
+    // conditional_imports should depend on both base_module (if block) and another_module (try block)
+    let roots = vec![python::ModulePath(vec!["conditional_imports".to_string()])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_dot_filtered(&upstream);
+
+    // Should include conditional_imports, base_module, and another_module
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_full_graph_with_nested_imports() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("nested_imports_project");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+    let dot_output = graph.to_dot();
+
+    // Should show all dependencies including those from nested imports
+    insta::assert_snapshot!(dot_output);
+}
+
 // CLI integration tests for file path support
 
 fn get_binary_path() -> PathBuf {
