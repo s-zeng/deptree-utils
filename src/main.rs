@@ -128,6 +128,10 @@ enum Command {
         /// Glob patterns to exclude from script discovery (can be repeated)
         #[arg(long = "exclude-scripts")]
         exclude_scripts: Vec<String>,
+
+        /// Include orphan nodes (nodes with no dependencies) in DOT output
+        #[arg(long)]
+        include_orphans: bool,
     },
 
     /// Analyze upstream dependencies (what a module depends on)
@@ -155,6 +159,10 @@ enum Command {
         /// Glob patterns to exclude from script discovery (can be repeated)
         #[arg(long = "exclude-scripts")]
         exclude_scripts: Vec<String>,
+
+        /// Include orphan nodes (nodes with no dependencies) in DOT output
+        #[arg(long)]
+        include_orphans: bool,
     },
 }
 
@@ -173,6 +181,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             downstream_module,
             downstream_file,
             exclude_scripts,
+            include_orphans,
         } => {
             let graph = python::analyze_project(&path, source_root.as_deref(), &exclude_scripts)?;
 
@@ -226,7 +235,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", graph.to_module_list(&downstream_modules));
             } else {
                 // Default behavior: output DOT graph
-                println!("{}", graph.to_dot());
+                println!("{}", graph.to_dot(include_orphans));
             }
         }
 
@@ -237,6 +246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             upstream_module,
             upstream_file,
             exclude_scripts,
+            include_orphans,
         } => {
             // Determine the source root first (needed for parsing module inputs)
             let actual_source_root = if let Some(explicit_root) = source_root.as_ref() {
@@ -300,7 +310,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let module_paths = module_paths?;
 
             let upstream_modules = graph.find_upstream(&module_paths);
-            println!("{}", graph.to_dot_filtered(&upstream_modules));
+            println!("{}", graph.to_dot_filtered(&upstream_modules, include_orphans));
         }
     }
 

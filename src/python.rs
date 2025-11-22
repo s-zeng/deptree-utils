@@ -5,6 +5,7 @@
 
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::{Bfs, Reversed};
+use petgraph::Direction;
 use ruff_python_parser::parse_module;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -268,7 +269,7 @@ impl DependencyGraph {
     }
 
     /// Convert the graph to Graphviz DOT format
-    pub fn to_dot(&self) -> String {
+    pub fn to_dot(&self, include_orphans: bool) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
         output.push_str(
@@ -278,6 +279,23 @@ impl DependencyGraph {
         // Collect and sort nodes for deterministic output
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out orphan nodes unless explicitly requested
+        if !include_orphans {
+            nodes.retain(|idx| {
+                let has_incoming = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Incoming)
+                    .count()
+                    > 0;
+                let has_outgoing = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Outgoing)
+                    .count()
+                    > 0;
+                has_incoming || has_outgoing
+            });
+        }
 
         // Add nodes
         for idx in &nodes {
@@ -310,7 +328,7 @@ impl DependencyGraph {
 
     /// Convert a filtered set of modules to Graphviz DOT format (subgraph).
     /// Only includes nodes and edges where both endpoints are in the filtered set.
-    pub fn to_dot_filtered(&self, filter: &HashSet<ModulePath>) -> String {
+    pub fn to_dot_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
         output.push_str(
@@ -324,6 +342,23 @@ impl DependencyGraph {
             .filter(|idx| filter.contains(&self.graph[*idx]))
             .collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out orphan nodes unless explicitly requested
+        if !include_orphans {
+            nodes.retain(|idx| {
+                let has_incoming = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Incoming)
+                    .count()
+                    > 0;
+                let has_outgoing = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Outgoing)
+                    .count()
+                    > 0;
+                has_incoming || has_outgoing
+            });
+        }
 
         // Add nodes
         for idx in &nodes {

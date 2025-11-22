@@ -5,7 +5,6 @@ expression: dot_output
 digraph dependencies {
     rankdir=LR;
     // Note: Scripts (files outside source root) are shown with box shape
-    "foo";
     "foo.bar";
     "scripts.blah" [shape=box];
     "scripts.runner" [shape=box];

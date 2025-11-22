@@ -18,7 +18,7 @@ fn fixture_path() -> PathBuf {
 fn test_sample_python_project_dot_output() {
     let root = fixture_path();
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     insta::assert_snapshot!(dot_output);
 }
@@ -54,7 +54,7 @@ fn test_skip_unparseable_files() {
     // Should succeed despite malformed.py containing invalid syntax
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze project with unparseable files");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     // Snapshot should only contain valid_module and another_valid, not malformed
     insta::assert_snapshot!(dot_output);
@@ -129,7 +129,7 @@ fn test_src_layout_auto_detection() {
     // Auto-detection should find src/ directory from pyproject.toml
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze src layout project");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     // Should have same modules as flat layout (pkg_a, pkg_b, main)
     // Module names should be relative to src/ not project root
@@ -146,7 +146,7 @@ fn test_lib_python_layout_auto_detection() {
     // Auto-detection should find lib/python/ directory via heuristics
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze lib/python layout");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     // Should have same modules as flat layout (pkg_a, pkg_b, main)
     // Module names should be relative to lib/python/ not project root
@@ -164,7 +164,7 @@ fn test_explicit_source_root_override() {
     // Explicitly specify source root instead of relying on auto-detection
     let graph = python::analyze_project(&project_root, Some(&source_root), &[])
         .expect("Failed to analyze with explicit source root");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     // Should produce same output as auto-detection
     insta::assert_snapshot!(dot_output);
@@ -180,7 +180,7 @@ fn test_project_with_scripts() {
     // Should discover scripts outside source root
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     // Should include:
     // - foo.bar (internal module)
@@ -244,7 +244,7 @@ fn test_exclude_scripts_pattern() {
     // Exclude the scripts directory entirely
     let graph = python::analyze_project(&root, None, &["scripts".to_string()])
         .expect("Failed to analyze project with exclusions");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     // Should only include foo.bar, no scripts
     insta::assert_snapshot!(dot_output);
@@ -261,7 +261,7 @@ fn test_upstream_single_module_no_deps() {
         "module_b".to_string(),
     ])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     insta::assert_snapshot!(output);
 }
@@ -278,7 +278,7 @@ fn test_upstream_single_module_with_deps() {
         "module_a".to_string(),
     ])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     insta::assert_snapshot!(output);
 }
@@ -292,7 +292,7 @@ fn test_upstream_transitive_deps() {
     // Should include: main, pkg_a.module_a, pkg_b.module_b
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     insta::assert_snapshot!(output);
 }
@@ -309,7 +309,7 @@ fn test_upstream_multiple_modules() {
         python::ModulePath(vec!["pkg_b".to_string(), "module_b".to_string()]),
     ];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     insta::assert_snapshot!(output);
 }
@@ -322,7 +322,7 @@ fn test_upstream_nonexistent_module() {
     // Module that doesn't exist in the project
     let roots = vec![python::ModulePath(vec!["nonexistent".to_string()])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     // Should be empty graph
     insta::assert_snapshot!(output);
@@ -345,7 +345,7 @@ fn test_upstream_with_scripts() {
         "blah".to_string(),
     ])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     // Should show box shape for scripts.blah
     insta::assert_snapshot!(output);
@@ -368,7 +368,7 @@ fn test_upstream_script_with_relative_imports() {
         "runner".to_string(),
     ])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     // Should show dependencies between scripts and to internal modules
     insta::assert_snapshot!(output);
@@ -389,7 +389,7 @@ fn test_function_level_imports() {
     // function_imports should depend on both base_module (top-level) and another_module (function-level)
     let roots = vec![python::ModulePath(vec!["function_imports".to_string()])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     // Should include function_imports, base_module, and another_module
     insta::assert_snapshot!(output);
@@ -408,7 +408,7 @@ fn test_class_method_imports() {
     // class_imports should depend on base_module (imported in method)
     let roots = vec![python::ModulePath(vec!["class_imports".to_string()])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     // Should include class_imports and base_module
     insta::assert_snapshot!(output);
@@ -427,7 +427,7 @@ fn test_conditional_imports() {
     // conditional_imports should depend on both base_module (if block) and another_module (try block)
     let roots = vec![python::ModulePath(vec!["conditional_imports".to_string()])];
     let upstream = graph.find_upstream(&roots);
-    let output = graph.to_dot_filtered(&upstream);
+    let output = graph.to_dot_filtered(&upstream, false);
 
     // Should include conditional_imports, base_module, and another_module
     insta::assert_snapshot!(output);
@@ -442,7 +442,7 @@ fn test_full_graph_with_nested_imports() {
 
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
-    let dot_output = graph.to_dot();
+    let dot_output = graph.to_dot(false);
 
     // Should show all dependencies including those from nested imports
     insta::assert_snapshot!(dot_output);

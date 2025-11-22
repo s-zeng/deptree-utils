@@ -51,6 +51,25 @@ The analyzer:
 - Resolves relative imports based on module location
 - Only includes internal dependencies (modules within the project)
 - Outputs a deterministic DOT format graph
+- **By default, filters out orphan nodes** (modules with no dependencies and no dependents)
+
+**Orphan Node Filtering:**
+
+By default, the DOT graph output excludes orphan nodes (modules that have no incoming or outgoing edges). This keeps the graph focused on modules that are part of the dependency structure.
+
+To include orphan nodes in the output, use the `--include-orphans` flag:
+
+```bash
+# Include orphan nodes in the DOT output
+deptree-utils python ./my-project --include-orphans
+```
+
+Orphan nodes are typically:
+- Standalone modules that don't import anything and aren't imported by anything
+- Dead code that's not connected to the rest of the project
+- New modules that haven't been integrated yet
+
+This flag is available for both `python` and `python-upstream` commands.
 
 #### Source Root Detection
 The analyzer automatically detects the Python source root to correctly handle projects with different layouts.
