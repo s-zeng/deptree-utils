@@ -1,0 +1,6 @@
+---
+source: tests/python_test.rs
+expression: output
+---
+flowchart TD
+    main("main") --> pkg_b_module_b("pkg_b.module_b")

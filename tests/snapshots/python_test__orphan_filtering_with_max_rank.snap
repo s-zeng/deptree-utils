@@ -1,0 +1,9 @@
+---
+source: tests/python_test.rs
+expression: output
+---
+digraph dependencies {
+    rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
+    "pkg_b.module_b";
+}

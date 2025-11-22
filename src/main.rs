@@ -113,8 +113,8 @@ enum Command {
         #[arg(long, short = 's')]
         source_root: Option<PathBuf>,
 
-        /// Output format: 'dot' or 'mermaid' (default: dot)
-        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid"])]
+        /// Output format: 'dot', 'mermaid', or 'list' (default: dot)
+        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid", "list"])]
         format: String,
 
         /// Comma-separated list of modules to find downstream dependencies for
@@ -128,6 +128,10 @@ enum Command {
         /// File containing newline-separated list of modules to find downstream dependencies for
         #[arg(long)]
         downstream_file: Option<PathBuf>,
+
+        /// Include only nodes within distance N from specified modules
+        #[arg(long)]
+        max_rank: Option<usize>,
 
         /// Glob patterns to exclude from script discovery (can be repeated)
         #[arg(long = "exclude-scripts")]
@@ -148,8 +152,8 @@ enum Command {
         #[arg(long, short = 's')]
         source_root: Option<PathBuf>,
 
-        /// Output format: 'dot' or 'mermaid' (default: dot)
-        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid"])]
+        /// Output format: 'dot', 'mermaid', or 'list' (default: dot)
+        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid", "list"])]
         format: String,
 
         /// Comma-separated list of modules to find upstream dependencies for
@@ -163,6 +167,10 @@ enum Command {
         /// File containing newline-separated list of modules to find upstream dependencies for
         #[arg(long)]
         upstream_file: Option<PathBuf>,
+
+        /// Include only nodes within distance N from specified modules
+        #[arg(long)]
+        max_rank: Option<usize>,
 
         /// Glob patterns to exclude from script discovery (can be repeated)
         #[arg(long = "exclude-scripts")]
@@ -189,6 +197,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             downstream,
             downstream_module,
             downstream_file,
+            max_rank,
             exclude_scripts,
             include_orphans,
         } => {
@@ -233,6 +242,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
+            // Parse output format
+            let output_format = match format.as_str() {
+                "dot" => python::OutputFormat::Dot,
+                "mermaid" => python::OutputFormat::Mermaid,
+                "list" => python::OutputFormat::List,
+                _ => unreachable!("Invalid format validated by clap"),
+            };
+
             // If downstream modules are specified, perform downstream analysis
             if !module_names.is_empty() {
                 let module_paths: Vec<python::ModulePath> = module_names
@@ -240,22 +257,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|name| python::ModulePath(name.split('.').map(String::from).collect()))
                     .collect();
 
-                let downstream_modules = graph.find_downstream(&module_paths);
-                println!("{}", graph.to_module_list(&downstream_modules));
-            } else {
-                // Default behavior: output graph in the specified format
-                let output_format = match format.as_str() {
-                    "dot" => python::OutputFormat::Dot,
-                    "mermaid" => python::OutputFormat::Mermaid,
-                    _ => unreachable!("Invalid format validated by clap"),
-                };
+                let downstream_modules = graph.find_downstream(&module_paths, max_rank);
 
+                // Convert HashMap to HashSet for filtered output methods
+                let filter: std::collections::HashSet<python::ModulePath> =
+                    downstream_modules.keys().cloned().collect();
+
+                match output_format {
+                    python::OutputFormat::Dot => {
+                        println!("{}", graph.to_dot_filtered(&filter, include_orphans));
+                    }
+                    python::OutputFormat::Mermaid => {
+                        println!("{}", graph.to_mermaid_filtered(&filter, include_orphans));
+                    }
+                    python::OutputFormat::List => {
+                        println!("{}", graph.to_list_filtered(&filter));
+                    }
+                }
+            } else {
+                // Default behavior: output full graph in the specified format
                 match output_format {
                     python::OutputFormat::Dot => {
                         println!("{}", graph.to_dot(include_orphans));
                     }
                     python::OutputFormat::Mermaid => {
                         println!("{}", graph.to_mermaid(include_orphans));
+                    }
+                    python::OutputFormat::List => {
+                        return Err("List format requires --downstream to be specified".into());
                     }
                 }
             }
@@ -268,6 +297,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             upstream,
             upstream_module,
             upstream_file,
+            max_rank,
             exclude_scripts,
             include_orphans,
         } => {
@@ -332,21 +362,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect();
             let module_paths = module_paths?;
 
-            let upstream_modules = graph.find_upstream(&module_paths);
+            let upstream_modules = graph.find_upstream(&module_paths, max_rank);
+
+            // Convert HashMap to HashSet for filtered output methods
+            let filter: std::collections::HashSet<python::ModulePath> =
+                upstream_modules.keys().cloned().collect();
 
             // Output in the specified format
             let output_format = match format.as_str() {
                 "dot" => python::OutputFormat::Dot,
                 "mermaid" => python::OutputFormat::Mermaid,
+                "list" => python::OutputFormat::List,
                 _ => unreachable!("Invalid format validated by clap"),
             };
 
             match output_format {
                 python::OutputFormat::Dot => {
-                    println!("{}", graph.to_dot_filtered(&upstream_modules, include_orphans));
+                    println!("{}", graph.to_dot_filtered(&filter, include_orphans));
                 }
                 python::OutputFormat::Mermaid => {
-                    println!("{}", graph.to_mermaid_filtered(&upstream_modules, include_orphans));
+                    println!("{}", graph.to_mermaid_filtered(&filter, include_orphans));
+                }
+                python::OutputFormat::List => {
+                    println!("{}", graph.to_list_filtered(&filter));
                 }
             }
         }

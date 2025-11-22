@@ -33,6 +33,7 @@ pub enum PythonAnalysisError {
 pub enum OutputFormat {
     Dot,
     Mermaid,
+    List,
 }
 
 /// Represents a Python module within the project
@@ -630,9 +631,11 @@ impl DependencyGraph {
     }
 
     /// Find all modules that depend on the given root modules (downstream dependencies).
-    /// Returns a set containing the roots and all modules that transitively depend on them.
-    pub fn find_downstream(&self, roots: &[ModulePath]) -> HashSet<ModulePath> {
-        let mut downstream = HashSet::new();
+    /// Returns a map containing the roots and all modules that transitively depend on them,
+    /// along with their distance from the nearest root.
+    /// If max_rank is specified, only includes nodes within that distance.
+    pub fn find_downstream(&self, roots: &[ModulePath], max_rank: Option<usize>) -> HashMap<ModulePath, usize> {
+        let mut downstream: HashMap<ModulePath, usize> = HashMap::new();
 
         // Convert ModulePaths to NodeIndices
         let root_indices: Vec<NodeIndex> = roots
@@ -640,10 +643,10 @@ impl DependencyGraph {
             .filter_map(|module| self.node_indices.get(module).copied())
             .collect();
 
-        // Add the root modules themselves
+        // Add the root modules themselves with distance 0
         for module in roots {
             if self.node_indices.contains_key(module) {
-                downstream.insert(module.clone());
+                downstream.insert(module.clone(), 0);
             }
         }
 
@@ -652,10 +655,39 @@ impl DependencyGraph {
         let reversed = Reversed(&self.graph);
 
         for root_idx in root_indices {
-            let mut bfs = Bfs::new(&reversed, root_idx);
-            while let Some(node_idx) = bfs.next(&reversed) {
-                let module = &self.graph[node_idx];
-                downstream.insert(module.clone());
+            if let Some(max) = max_rank {
+                // When max_rank is specified, use custom BFS with distance tracking
+                let mut queue = std::collections::VecDeque::new();
+                let mut visited = HashSet::new();
+
+                queue.push_back((root_idx, 0));
+                visited.insert(root_idx);
+
+                while let Some((node_idx, distance)) = queue.pop_front() {
+                    let module = &self.graph[node_idx];
+
+                    // Update downstream map with minimum distance
+                    downstream
+                        .entry(module.clone())
+                        .and_modify(|d| *d = (*d).min(distance))
+                        .or_insert(distance);
+
+                    // Only explore neighbors if we haven't reached max_rank
+                    if distance < max {
+                        for neighbor in self.graph.neighbors_directed(node_idx, Direction::Incoming) {
+                            if visited.insert(neighbor) {
+                                queue.push_back((neighbor, distance + 1));
+                            }
+                        }
+                    }
+                }
+            } else {
+                // When max_rank is None, use petgraph's BFS (faster)
+                let mut bfs = Bfs::new(&reversed, root_idx);
+                while let Some(node_idx) = bfs.next(&reversed) {
+                    let module = &self.graph[node_idx];
+                    downstream.entry(module.clone()).or_insert(0);
+                }
             }
         }
 
@@ -663,9 +695,11 @@ impl DependencyGraph {
     }
 
     /// Find all modules that the given root modules depend on (upstream dependencies).
-    /// Returns a set containing the roots and all modules that they transitively depend on.
-    pub fn find_upstream(&self, roots: &[ModulePath]) -> HashSet<ModulePath> {
-        let mut upstream = HashSet::new();
+    /// Returns a map containing the roots and all modules that they transitively depend on,
+    /// along with their distance from the nearest root.
+    /// If max_rank is specified, only includes nodes within that distance.
+    pub fn find_upstream(&self, roots: &[ModulePath], max_rank: Option<usize>) -> HashMap<ModulePath, usize> {
+        let mut upstream: HashMap<ModulePath, usize> = HashMap::new();
 
         // Convert ModulePaths to NodeIndices
         let root_indices: Vec<NodeIndex> = roots
@@ -673,29 +707,58 @@ impl DependencyGraph {
             .filter_map(|module| self.node_indices.get(module).copied())
             .collect();
 
-        // Add the root modules themselves
+        // Add the root modules themselves with distance 0
         for module in roots {
             if self.node_indices.contains_key(module) {
-                upstream.insert(module.clone());
+                upstream.insert(module.clone(), 0);
             }
         }
 
         // Use BFS on the original graph to find all modules that the roots depend on
         // Edges point from modules to their dependencies
         for root_idx in root_indices {
-            let mut bfs = Bfs::new(&self.graph, root_idx);
-            while let Some(node_idx) = bfs.next(&self.graph) {
-                let module = &self.graph[node_idx];
-                upstream.insert(module.clone());
+            if let Some(max) = max_rank {
+                // When max_rank is specified, use custom BFS with distance tracking
+                let mut queue = std::collections::VecDeque::new();
+                let mut visited = HashSet::new();
+
+                queue.push_back((root_idx, 0));
+                visited.insert(root_idx);
+
+                while let Some((node_idx, distance)) = queue.pop_front() {
+                    let module = &self.graph[node_idx];
+
+                    // Update upstream map with minimum distance
+                    upstream
+                        .entry(module.clone())
+                        .and_modify(|d| *d = (*d).min(distance))
+                        .or_insert(distance);
+
+                    // Only explore neighbors if we haven't reached max_rank
+                    if distance < max {
+                        for neighbor in self.graph.neighbors(node_idx) {
+                            if visited.insert(neighbor) {
+                                queue.push_back((neighbor, distance + 1));
+                            }
+                        }
+                    }
+                }
+            } else {
+                // When max_rank is None, use petgraph's BFS (faster)
+                let mut bfs = Bfs::new(&self.graph, root_idx);
+                while let Some(node_idx) = bfs.next(&self.graph) {
+                    let module = &self.graph[node_idx];
+                    upstream.entry(module.clone()).or_insert(0);
+                }
             }
         }
 
         upstream
     }
 
-    /// Convert a set of modules to a sorted, newline-separated list of dotted module names
-    pub fn to_module_list(&self, modules: &HashSet<ModulePath>) -> String {
-        let mut sorted_modules: Vec<String> = modules.iter().map(|m| m.to_dotted()).collect();
+    /// Convert a filtered set of modules to a sorted, newline-separated list of dotted module names
+    pub fn to_list_filtered(&self, filter: &HashSet<ModulePath>) -> String {
+        let mut sorted_modules: Vec<String> = filter.iter().map(|m| m.to_dotted()).collect();
         sorted_modules.sort();
         sorted_modules.join("\n")
     }

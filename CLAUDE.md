@@ -55,7 +55,7 @@ The analyzer:
 
 #### Output Format Selection
 
-You can choose between Graphviz DOT and Mermaid flowchart formats using the `--format` flag:
+You can choose between Graphviz DOT, Mermaid flowchart, and plain list formats using the `--format` flag:
 
 ```bash
 # DOT format (default) - for use with Graphviz
@@ -63,6 +63,9 @@ deptree-utils python ./my-project --format dot
 
 # Mermaid format - for use in Markdown, GitHub, documentation
 deptree-utils python ./my-project --format mermaid
+
+# List format - for downstream/upstream analysis only
+deptree-utils python ./my-project --downstream pkg_a --format list
 ```
 
 **DOT format:**
@@ -76,10 +79,16 @@ deptree-utils python ./my-project --format mermaid
 - Scripts shown as rectangles `[script]`, modules as rounded rectangles `(module)`
 - Can be embedded directly in Markdown files
 
-Both formats:
+**List format:**
+- Sorted, newline-separated list of module names
+- Only available with `--downstream` or `python-upstream` commands
+- Useful for scripting and programmatic processing
+
+All graph formats (DOT and Mermaid):
 - Support the `--include-orphans` flag
 - Work with upstream (`python-upstream`) and downstream analysis
 - Provide deterministic, sorted output for version control
+- Support `--max-rank` for distance filtering
 
 **Orphan Node Filtering:**
 
@@ -153,11 +162,18 @@ This is useful when:
 - The project has an unusual structure
 
 #### Downstream Dependency Analysis
-Find all modules that depend on a given set of modules (downstream dependencies). The output includes the specified modules and all modules that transitively depend on them, as a sorted, newline-separated list.
+Find all modules that depend on a given set of modules (downstream dependencies). **By default, outputs a dependency graph** (DOT or Mermaid format) showing only the specified modules and all modules that transitively depend on them.
 
-**Via comma-separated list:**
+**Basic usage via comma-separated list:**
 ```bash
+# Default: outputs DOT graph format
 deptree-utils python <path> --downstream pkg_a.module_a,pkg_b.module_b
+
+# Output in Mermaid format
+deptree-utils python <path> --downstream pkg_a.module_a,pkg_b.module_b --format mermaid
+
+# Output as a sorted, newline-separated list
+deptree-utils python <path> --downstream pkg_a.module_a,pkg_b.module_b --format list
 ```
 
 **Via repeated flags:**
@@ -177,12 +193,44 @@ deptree-utils python <path> --downstream-file modules.txt
 **Combined usage:**
 All three input methods can be combined in a single command. The module lists will be merged.
 
+**Output formats:**
+- `--format dot` (default): Graphviz DOT format showing the downstream dependency graph
+- `--format mermaid`: Mermaid flowchart format for the downstream dependency graph
+- `--format list`: Sorted, newline-separated list of module names
+
+**Limit by distance (max-rank):**
+You can limit the output to only include nodes within a specific distance from the specified modules using `--max-rank`:
+
+```bash
+# Include only direct dependents (distance 1)
+deptree-utils python <path> --downstream pkg_a.module_a --max-rank 1
+
+# Include modules up to 2 edges away
+deptree-utils python <path> --downstream pkg_a.module_a --max-rank 2 --format mermaid
+
+# Works with list format too
+deptree-utils python <path> --downstream pkg_a.module_a --max-rank 1 --format list
+```
+
+Distance is measured as the minimum number of dependency edges from any of the specified modules. For example:
+- Distance 0: The specified modules themselves
+- Distance 1: Modules that directly depend on the specified modules
+- Distance 2: Modules that depend on modules at distance 1
+- And so on...
+
 #### Upstream Dependency Analysis
-Find all modules that a given set of modules depends on (upstream dependencies). The output is a DOT graph showing only the specified modules and all modules they transitively depend on (the upstream dependency tree).
+Find all modules that a given set of modules depends on (upstream dependencies). **By default, outputs a dependency graph** (DOT or Mermaid format) showing only the specified modules and all modules they transitively depend on (the upstream dependency tree).
 
 **Basic usage via comma-separated list:**
 ```bash
+# Default: outputs DOT graph format
 deptree-utils python-upstream <path> --upstream pkg_a.module_a,pkg_b.module_b
+
+# Output in Mermaid format
+deptree-utils python-upstream <path> --upstream pkg_a.module_a,pkg_b.module_b --format mermaid
+
+# Output as a sorted, newline-separated list
+deptree-utils python-upstream <path> --upstream pkg_a.module_a,pkg_b.module_b --format list
 ```
 
 **Via repeated flags:**
@@ -228,12 +276,36 @@ File paths can be:
 - Paths to internal modules inside the source root (e.g., `src/pkg_a/module_a.py`)
 - Mixed with dotted module names in the same command
 
-**Output format:**
-The command outputs a dependency graph (DOT or Mermaid format) showing only the upstream dependency subgraph. This includes:
+**Output formats:**
+- `--format dot` (default): Graphviz DOT format showing the upstream dependency graph
+- `--format mermaid`: Mermaid flowchart format for the upstream dependency graph
+- `--format list`: Sorted, newline-separated list of module names
+
+The command outputs a dependency graph (or list) showing only the upstream dependency subgraph. This includes:
 - The specified module(s)
 - All modules they depend on (directly or transitively)
-- Only edges between modules in this set
-- Visual distinction for scripts vs. internal modules (box/rectangle vs. ellipse/rounded rectangle)
+- Only edges between modules in this set (for graph formats)
+- Visual distinction for scripts vs. internal modules (box/rectangle vs. ellipse/rounded rectangle in graphs)
+
+**Limit by distance (max-rank):**
+You can limit the output to only include nodes within a specific distance from the specified modules using `--max-rank`:
+
+```bash
+# Include only direct dependencies (distance 1)
+deptree-utils python-upstream <path> --upstream main --max-rank 1
+
+# Include modules up to 2 edges away
+deptree-utils python-upstream <path> --upstream main --max-rank 2 --format mermaid
+
+# Works with list format too
+deptree-utils python-upstream <path> --upstream main --max-rank 1 --format list
+```
+
+Distance is measured as the minimum number of dependency edges from any of the specified modules. For example:
+- Distance 0: The specified modules themselves
+- Distance 1: Modules that the specified modules directly depend on
+- Distance 2: Modules that distance-1 modules depend on
+- And so on...
 
 **Examples:**
 ```bash
@@ -242,6 +314,9 @@ deptree-utils python-upstream ./my-project --upstream main
 
 # Output in Mermaid format
 deptree-utils python-upstream ./my-project --upstream main --format mermaid
+
+# Output as list format
+deptree-utils python-upstream ./my-project --upstream main --format list
 
 # Visualize DOT output with Graphviz
 deptree-utils python-upstream ./my-project --upstream main --format dot | dot -Tpng > deps.png
