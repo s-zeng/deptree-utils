@@ -113,6 +113,10 @@ enum Command {
         #[arg(long, short = 's')]
         source_root: Option<PathBuf>,
 
+        /// Output format: 'dot' or 'mermaid' (default: dot)
+        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid"])]
+        format: String,
+
         /// Comma-separated list of modules to find downstream dependencies for
         #[arg(long)]
         downstream: Option<String>,
@@ -143,6 +147,10 @@ enum Command {
         /// Python source root directory (defaults to auto-detection)
         #[arg(long, short = 's')]
         source_root: Option<PathBuf>,
+
+        /// Output format: 'dot' or 'mermaid' (default: dot)
+        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid"])]
+        format: String,
 
         /// Comma-separated list of modules to find upstream dependencies for
         #[arg(long)]
@@ -177,6 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Python {
             path,
             source_root,
+            format,
             downstream,
             downstream_module,
             downstream_file,
@@ -234,14 +243,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let downstream_modules = graph.find_downstream(&module_paths);
                 println!("{}", graph.to_module_list(&downstream_modules));
             } else {
-                // Default behavior: output DOT graph
-                println!("{}", graph.to_dot(include_orphans));
+                // Default behavior: output graph in the specified format
+                let output_format = match format.as_str() {
+                    "dot" => python::OutputFormat::Dot,
+                    "mermaid" => python::OutputFormat::Mermaid,
+                    _ => unreachable!("Invalid format validated by clap"),
+                };
+
+                match output_format {
+                    python::OutputFormat::Dot => {
+                        println!("{}", graph.to_dot(include_orphans));
+                    }
+                    python::OutputFormat::Mermaid => {
+                        println!("{}", graph.to_mermaid(include_orphans));
+                    }
+                }
             }
         }
 
         Command::PythonUpstream {
             path,
             source_root,
+            format,
             upstream,
             upstream_module,
             upstream_file,
@@ -310,7 +333,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let module_paths = module_paths?;
 
             let upstream_modules = graph.find_upstream(&module_paths);
-            println!("{}", graph.to_dot_filtered(&upstream_modules, include_orphans));
+
+            // Output in the specified format
+            let output_format = match format.as_str() {
+                "dot" => python::OutputFormat::Dot,
+                "mermaid" => python::OutputFormat::Mermaid,
+                _ => unreachable!("Invalid format validated by clap"),
+            };
+
+            match output_format {
+                python::OutputFormat::Dot => {
+                    println!("{}", graph.to_dot_filtered(&upstream_modules, include_orphans));
+                }
+                python::OutputFormat::Mermaid => {
+                    println!("{}", graph.to_mermaid_filtered(&upstream_modules, include_orphans));
+                }
+            }
         }
     }
 

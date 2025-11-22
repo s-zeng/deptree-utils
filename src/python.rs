@@ -28,6 +28,13 @@ pub enum PythonAnalysisError {
     NoSourceRootFound(PathBuf),
 }
 
+/// Output format for dependency graphs
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    Dot,
+    Mermaid,
+}
+
 /// Represents a Python module within the project
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModulePath(pub Vec<String>);
@@ -224,6 +231,12 @@ fn visit_stmts(stmts: &[ruff_python_ast::Stmt], imports: &mut Vec<Import>) {
     }
 }
 
+/// Convert a dotted module name to a valid Mermaid node ID
+/// Replaces dots with underscores since dots are not valid in Mermaid IDs
+fn sanitize_mermaid_id(name: &str) -> String {
+    name.replace('.', "_")
+}
+
 /// The dependency graph of Python modules
 pub struct DependencyGraph {
     graph: DiGraph<ModulePath, ()>,
@@ -326,6 +339,114 @@ impl DependencyGraph {
         output
     }
 
+    /// Convert the graph to Mermaid flowchart format
+    pub fn to_mermaid(&self, include_orphans: bool) -> String {
+        let mut output = String::from("flowchart TD\n");
+
+        // Collect and sort nodes for deterministic output
+        let mut nodes: Vec<_> = self.graph.node_indices().collect();
+        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out orphan nodes unless explicitly requested
+        if !include_orphans {
+            nodes.retain(|idx| {
+                let has_incoming = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Incoming)
+                    .count()
+                    > 0;
+                let has_outgoing = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Outgoing)
+                    .count()
+                    > 0;
+                has_incoming || has_outgoing
+            });
+        }
+
+        // Collect and sort edges for deterministic output
+        let mut edges: Vec<_> = self
+            .graph
+            .edge_indices()
+            .filter_map(|e| self.graph.edge_endpoints(e))
+            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+            .collect();
+        edges.sort();
+
+        // Create a set of nodes that appear in edges for efficient lookup
+        let nodes_in_edges: std::collections::HashSet<String> = edges
+            .iter()
+            .flat_map(|(from, to)| vec![from.clone(), to.clone()])
+            .collect();
+
+        // Add nodes that don't appear in edges (orphans if include_orphans is true)
+        for idx in &nodes {
+            let module = &self.graph[*idx];
+            let module_name = module.to_dotted();
+
+            // Only output standalone node definitions for nodes without edges
+            if !nodes_in_edges.contains(&module_name) {
+                let node_id = sanitize_mermaid_id(&module_name);
+                if self.is_script(module) {
+                    // Scripts get rectangle shape
+                    output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
+                } else {
+                    // Modules get rounded rectangle shape
+                    output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
+                }
+            }
+        }
+
+        // Add edges (which implicitly define nodes)
+        for (from_name, to_name) in edges {
+            let from_id = sanitize_mermaid_id(&from_name);
+            let to_id = sanitize_mermaid_id(&to_name);
+
+            // Determine shapes based on whether modules are scripts
+            let from_module = self.node_indices.get(&ModulePath(
+                from_name.split('.').map(String::from).collect(),
+            ));
+            let to_module = self.node_indices.get(&ModulePath(
+                to_name.split('.').map(String::from).collect(),
+            ));
+
+            let from_shape = if from_module.map(|idx| {
+                let m = &self.graph[*idx];
+                self.is_script(m)
+            }).unwrap_or(false) {
+                format!("{}[\"{}\"", from_id, from_name)
+            } else {
+                format!("{}(\"{}\"", from_id, from_name)
+            };
+
+            let to_shape = if to_module.map(|idx| {
+                let m = &self.graph[*idx];
+                self.is_script(m)
+            }).unwrap_or(false) {
+                format!("{}[\"{}\"", to_id, to_name)
+            } else {
+                format!("{}(\"{}\"", to_id, to_name)
+            };
+
+            // Close the shapes
+            let from_def = if from_shape.contains('[') {
+                format!("{}]", from_shape)
+            } else {
+                format!("{})", from_shape)
+            };
+
+            let to_def = if to_shape.contains('[') {
+                format!("{}]", to_shape)
+            } else {
+                format!("{})", to_shape)
+            };
+
+            output.push_str(&format!("    {} --> {}\n", from_def, to_def));
+        }
+
+        output
+    }
+
     /// Convert a filtered set of modules to Graphviz DOT format (subgraph).
     /// Only includes nodes and edges where both endpoints are in the filtered set.
     pub fn to_dot_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool) -> String {
@@ -389,6 +510,122 @@ impl DependencyGraph {
         }
 
         output.push_str("}\n");
+        output
+    }
+
+    /// Convert a filtered set of modules to Mermaid flowchart format (subgraph).
+    /// Only includes nodes and edges where both endpoints are in the filtered set.
+    pub fn to_mermaid_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool) -> String {
+        let mut output = String::from("flowchart TD\n");
+
+        // Collect and sort nodes that are in the filter
+        let mut nodes: Vec<_> = self
+            .graph
+            .node_indices()
+            .filter(|idx| filter.contains(&self.graph[*idx]))
+            .collect();
+        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out orphan nodes unless explicitly requested
+        if !include_orphans {
+            nodes.retain(|idx| {
+                let has_incoming = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Incoming)
+                    .count()
+                    > 0;
+                let has_outgoing = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Outgoing)
+                    .count()
+                    > 0;
+                has_incoming || has_outgoing
+            });
+        }
+
+        // Collect and sort edges where both endpoints are in the filter
+        let mut edges: Vec<_> = self
+            .graph
+            .edge_indices()
+            .filter_map(|e| self.graph.edge_endpoints(e))
+            .filter(|(from, to)| {
+                filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
+            })
+            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+            .collect();
+        edges.sort();
+
+        // Create a set of nodes that appear in edges for efficient lookup
+        let nodes_in_edges: std::collections::HashSet<String> = edges
+            .iter()
+            .flat_map(|(from, to)| vec![from.clone(), to.clone()])
+            .collect();
+
+        // Add nodes that don't appear in edges (orphans if include_orphans is true)
+        for idx in &nodes {
+            let module = &self.graph[*idx];
+            let module_name = module.to_dotted();
+
+            // Only output standalone node definitions for nodes without edges
+            if !nodes_in_edges.contains(&module_name) {
+                let node_id = sanitize_mermaid_id(&module_name);
+                if self.is_script(module) {
+                    // Scripts get rectangle shape
+                    output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
+                } else {
+                    // Modules get rounded rectangle shape
+                    output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
+                }
+            }
+        }
+
+        // Add edges (which implicitly define nodes)
+        for (from_name, to_name) in edges {
+            let from_id = sanitize_mermaid_id(&from_name);
+            let to_id = sanitize_mermaid_id(&to_name);
+
+            // Determine shapes based on whether modules are scripts
+            let from_module = self.node_indices.get(&ModulePath(
+                from_name.split('.').map(String::from).collect(),
+            ));
+            let to_module = self.node_indices.get(&ModulePath(
+                to_name.split('.').map(String::from).collect(),
+            ));
+
+            let from_shape = if from_module.map(|idx| {
+                let m = &self.graph[*idx];
+                self.is_script(m)
+            }).unwrap_or(false) {
+                format!("{}[\"{}\"", from_id, from_name)
+            } else {
+                format!("{}(\"{}\"", from_id, from_name)
+            };
+
+            let to_shape = if to_module.map(|idx| {
+                let m = &self.graph[*idx];
+                self.is_script(m)
+            }).unwrap_or(false) {
+                format!("{}[\"{}\"", to_id, to_name)
+            } else {
+                format!("{}(\"{}\"", to_id, to_name)
+            };
+
+            // Close the shapes
+            let from_def = if from_shape.contains('[') {
+                format!("{}]", from_shape)
+            } else {
+                format!("{})", from_shape)
+            };
+
+            let to_def = if to_shape.contains('[') {
+                format!("{}]", to_shape)
+            } else {
+                format!("{})", to_shape)
+            };
+
+            output.push_str(&format!("    {} --> {}\n", from_def, to_def));
+        }
+
         output
     }
 

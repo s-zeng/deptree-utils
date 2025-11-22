@@ -1,0 +1,6 @@
+---
+source: tests/python_test.rs
+expression: output
+---
+flowchart TD
+    scripts_blah["scripts.blah"] --> foo_bar("foo.bar")

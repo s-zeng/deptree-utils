@@ -38,8 +38,8 @@ features or structures
 ### Python Dependency Analysis
 Analyzes Python projects to extract internal module dependencies.
 
-#### Basic Usage - DOT Graph Output
-Outputs a Graphviz DOT graph showing all internal dependencies:
+#### Basic Usage - Graph Output
+Outputs a dependency graph showing all internal dependencies. By default, outputs in Graphviz DOT format:
 
 ```bash
 deptree-utils python <path-to-python-project>
@@ -50,18 +50,47 @@ The analyzer:
 - Extracts `import` and `from ... import` statements
 - Resolves relative imports based on module location
 - Only includes internal dependencies (modules within the project)
-- Outputs a deterministic DOT format graph
+- Outputs a deterministic graph (DOT or Mermaid format)
 - **By default, filters out orphan nodes** (modules with no dependencies and no dependents)
+
+#### Output Format Selection
+
+You can choose between Graphviz DOT and Mermaid flowchart formats using the `--format` flag:
+
+```bash
+# DOT format (default) - for use with Graphviz
+deptree-utils python ./my-project --format dot
+
+# Mermaid format - for use in Markdown, GitHub, documentation
+deptree-utils python ./my-project --format mermaid
+```
+
+**DOT format:**
+- Traditional graph visualization format
+- Requires Graphviz for rendering
+- Example: `deptree-utils python ./project | dot -Tpng > graph.png`
+
+**Mermaid format:**
+- Modern flowchart syntax (`flowchart TD`)
+- Renders natively in GitHub, GitLab, and many documentation tools
+- Scripts shown as rectangles `[script]`, modules as rounded rectangles `(module)`
+- Can be embedded directly in Markdown files
+
+Both formats:
+- Support the `--include-orphans` flag
+- Work with upstream (`python-upstream`) and downstream analysis
+- Provide deterministic, sorted output for version control
 
 **Orphan Node Filtering:**
 
-By default, the DOT graph output excludes orphan nodes (modules that have no incoming or outgoing edges). This keeps the graph focused on modules that are part of the dependency structure.
+By default, graph output (both DOT and Mermaid) excludes orphan nodes (modules that have no incoming or outgoing edges). This keeps the graph focused on modules that are part of the dependency structure.
 
 To include orphan nodes in the output, use the `--include-orphans` flag:
 
 ```bash
-# Include orphan nodes in the DOT output
+# Include orphan nodes in the output (works with both formats)
 deptree-utils python ./my-project --include-orphans
+deptree-utils python ./my-project --format mermaid --include-orphans
 ```
 
 Orphan nodes are typically:
@@ -69,7 +98,7 @@ Orphan nodes are typically:
 - Dead code that's not connected to the rest of the project
 - New modules that haven't been integrated yet
 
-This flag is available for both `python` and `python-upstream` commands.
+This flag is available for both `python` and `python-upstream` commands, and works with both DOT and Mermaid output formats.
 
 #### Source Root Detection
 The analyzer automatically detects the Python source root to correctly handle projects with different layouts.
@@ -200,19 +229,25 @@ File paths can be:
 - Mixed with dotted module names in the same command
 
 **Output format:**
-The command outputs a Graphviz DOT graph showing only the upstream dependency subgraph. This includes:
+The command outputs a dependency graph (DOT or Mermaid format) showing only the upstream dependency subgraph. This includes:
 - The specified module(s)
 - All modules they depend on (directly or transitively)
 - Only edges between modules in this set
-- Visual distinction for scripts (box shape) vs. internal modules (ellipse shape)
+- Visual distinction for scripts vs. internal modules (box/rectangle vs. ellipse/rounded rectangle)
 
-**Example:**
+**Examples:**
 ```bash
-# Find everything that main.py depends on
+# Find everything that main.py depends on (default DOT format)
 deptree-utils python-upstream ./my-project --upstream main
 
-# Visualize with Graphviz
-deptree-utils python-upstream ./my-project --upstream main | dot -Tpng > deps.png
+# Output in Mermaid format
+deptree-utils python-upstream ./my-project --upstream main --format mermaid
+
+# Visualize DOT output with Graphviz
+deptree-utils python-upstream ./my-project --upstream main --format dot | dot -Tpng > deps.png
+
+# Embed Mermaid output in documentation
+deptree-utils python-upstream ./my-project --upstream main --format mermaid > docs/dependencies.mmd
 ```
 
 **Use cases:**
@@ -276,11 +311,17 @@ Scripts are named using their path relative to the project root:
 - `scripts/blah.py` → `scripts.blah`
 - `tools/utils/helper.py` → `tools.utils.helper`
 
-**Visual Distinction in DOT Output:**
+**Visual Distinction in Graph Output:**
 
 Scripts are visually distinguished in the dependency graph:
+
+DOT format:
 - Internal modules: shown as ellipses (default DOT shape)
 - Scripts: shown as boxes (`[shape=box]`)
+
+Mermaid format:
+- Internal modules: shown as rounded rectangles `(module.name)`
+- Scripts: shown as rectangles `[script.name]`
 
 **Custom Exclusion Patterns:**
 

@@ -24,6 +24,15 @@ fn test_sample_python_project_dot_output() {
 }
 
 #[test]
+fn test_sample_python_project_mermaid_output() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+    let mermaid_output = graph.to_mermaid(false);
+
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
 fn test_module_path_from_file_path() {
     let root = fixture_path();
     let file_path = root.join("pkg_a").join("module_a.py");
@@ -192,6 +201,26 @@ fn test_project_with_scripts() {
 }
 
 #[test]
+fn test_project_with_scripts_mermaid() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    // Should discover scripts outside source root
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
+    let mermaid_output = graph.to_mermaid(false);
+
+    // Should include:
+    // - foo.bar (internal module) - rounded rectangle shape
+    // - scripts.blah (script) - rectangle shape
+    // - scripts.runner (script) - rectangle shape
+    // - scripts.utils.helper (script) - rectangle shape
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
 fn test_script_imports_internal_module() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -298,6 +327,20 @@ fn test_upstream_transitive_deps() {
 }
 
 #[test]
+fn test_upstream_transitive_deps_mermaid() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // Find all modules that main depends on (should include transitive dependencies)
+    // Should include: main, pkg_a.module_a, pkg_b.module_b
+    let roots = vec![python::ModulePath(vec!["main".to_string()])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_mermaid_filtered(&upstream, false);
+
+    insta::assert_snapshot!(output);
+}
+
+#[test]
 fn test_upstream_multiple_modules() {
     let root = fixture_path();
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
@@ -348,6 +391,29 @@ fn test_upstream_with_scripts() {
     let output = graph.to_dot_filtered(&upstream, false);
 
     // Should show box shape for scripts.blah
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_with_scripts_mermaid() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
+
+    // Find what scripts.blah depends on
+    // Should include scripts.blah (rectangle) and foo.bar (rounded rectangle)
+    let roots = vec![python::ModulePath(vec![
+        "scripts".to_string(),
+        "blah".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots);
+    let output = graph.to_mermaid_filtered(&upstream, false);
+
+    // Should show rectangle shape for scripts.blah, rounded for foo.bar
     insta::assert_snapshot!(output);
 }
 
