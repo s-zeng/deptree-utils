@@ -1,0 +1,17 @@
+---
+source: tests/python_test.rs
+expression: dot_output
+---
+digraph dependencies {
+    rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
+    "legacy_namespace.submodule.module";
+    "normal_pkg";
+    "normal_pkg.consumer";
+    "pep420_namespace.sub_a.module_a";
+    "pep420_namespace.sub_b.module_b";
+    "normal_pkg.consumer" -> "legacy_namespace.submodule.module";
+    "normal_pkg.consumer" -> "pep420_namespace.sub_b.module_b";
+    "pep420_namespace.sub_a.module_a" -> "normal_pkg";
+    "pep420_namespace.sub_b.module_b" -> "pep420_namespace.sub_a.module_a";
+}

@@ -1,0 +1,7 @@
+---
+source: tests/python_test.rs
+expression: output
+---
+normal_pkg.consumer
+pep420_namespace.sub_a.module_a
+pep420_namespace.sub_b.module_b

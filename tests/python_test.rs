@@ -18,7 +18,7 @@ fn fixture_path() -> PathBuf {
 fn test_sample_python_project_dot_output() {
     let root = fixture_path();
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     insta::assert_snapshot!(dot_output);
 }
@@ -27,7 +27,7 @@ fn test_sample_python_project_dot_output() {
 fn test_sample_python_project_mermaid_output() {
     let root = fixture_path();
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
-    let mermaid_output = graph.to_mermaid(false);
+    let mermaid_output = graph.to_mermaid(false, false);
 
     insta::assert_snapshot!(mermaid_output);
 }
@@ -63,7 +63,7 @@ fn test_skip_unparseable_files() {
     // Should succeed despite malformed.py containing invalid syntax
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze project with unparseable files");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     // Snapshot should only contain valid_module and another_valid, not malformed
     insta::assert_snapshot!(dot_output);
@@ -81,7 +81,7 @@ fn test_downstream_single_module() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -98,7 +98,7 @@ fn test_downstream_multiple_modules() {
     ];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -112,7 +112,7 @@ fn test_downstream_no_dependents() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -126,7 +126,7 @@ fn test_downstream_nonexistent_module() {
     let roots = vec![python::ModulePath(vec!["nonexistent".to_string()])];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     // Should be empty
     insta::assert_snapshot!(output);
@@ -142,7 +142,7 @@ fn test_src_layout_auto_detection() {
     // Auto-detection should find src/ directory from pyproject.toml
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze src layout project");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     // Should have same modules as flat layout (pkg_a, pkg_b, main)
     // Module names should be relative to src/ not project root
@@ -159,7 +159,7 @@ fn test_lib_python_layout_auto_detection() {
     // Auto-detection should find lib/python/ directory via heuristics
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze lib/python layout");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     // Should have same modules as flat layout (pkg_a, pkg_b, main)
     // Module names should be relative to lib/python/ not project root
@@ -177,7 +177,7 @@ fn test_explicit_source_root_override() {
     // Explicitly specify source root instead of relying on auto-detection
     let graph = python::analyze_project(&project_root, Some(&source_root), &[])
         .expect("Failed to analyze with explicit source root");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     // Should produce same output as auto-detection
     insta::assert_snapshot!(dot_output);
@@ -193,7 +193,7 @@ fn test_project_with_scripts() {
     // Should discover scripts outside source root
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     // Should include:
     // - foo.bar (internal module)
@@ -214,7 +214,7 @@ fn test_project_with_scripts_mermaid() {
     // Should discover scripts outside source root
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
-    let mermaid_output = graph.to_mermaid(false);
+    let mermaid_output = graph.to_mermaid(false, false);
 
     // Should include:
     // - foo.bar (internal module) - rounded rectangle shape
@@ -240,7 +240,7 @@ fn test_script_imports_internal_module() {
     // Find downstream dependencies of foo.bar - should include scripts.blah
     let downstream = graph.find_downstream(&[foo_bar.clone()], None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     // Should include both foo.bar and scripts.blah
     insta::assert_snapshot!(output);
@@ -263,7 +263,7 @@ fn test_script_relative_imports() {
         "helper".to_string(),
     ])], None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     // Should include scripts.utils.helper and scripts.runner
     insta::assert_snapshot!(output);
@@ -279,7 +279,7 @@ fn test_exclude_scripts_pattern() {
     // Exclude the scripts directory entirely
     let graph = python::analyze_project(&root, None, &["scripts".to_string()])
         .expect("Failed to analyze project with exclusions");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     // Should only include foo.bar, no scripts
     insta::assert_snapshot!(dot_output);
@@ -297,7 +297,7 @@ fn test_upstream_single_module_no_deps() {
     ])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -315,7 +315,7 @@ fn test_upstream_single_module_with_deps() {
     ])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -330,7 +330,7 @@ fn test_upstream_transitive_deps() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -345,7 +345,7 @@ fn test_upstream_transitive_deps_mermaid() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_mermaid_filtered(&filter, false);
+    let output = graph.to_mermaid_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -363,7 +363,7 @@ fn test_upstream_multiple_modules() {
     ];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -377,7 +377,7 @@ fn test_upstream_nonexistent_module() {
     let roots = vec![python::ModulePath(vec!["nonexistent".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     // Should be empty graph
     insta::assert_snapshot!(output);
@@ -401,7 +401,7 @@ fn test_upstream_with_scripts() {
     ])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     // Should show box shape for scripts.blah
     insta::assert_snapshot!(output);
@@ -425,7 +425,7 @@ fn test_upstream_with_scripts_mermaid() {
     ])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_mermaid_filtered(&filter, false);
+    let output = graph.to_mermaid_filtered(&filter, false, false);
 
     // Should show rectangle shape for scripts.blah, rounded for foo.bar
     insta::assert_snapshot!(output);
@@ -449,7 +449,7 @@ fn test_upstream_script_with_relative_imports() {
     ])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     // Should show dependencies between scripts and to internal modules
     insta::assert_snapshot!(output);
@@ -471,7 +471,7 @@ fn test_function_level_imports() {
     let roots = vec![python::ModulePath(vec!["function_imports".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     // Should include function_imports, base_module, and another_module
     insta::assert_snapshot!(output);
@@ -491,7 +491,7 @@ fn test_class_method_imports() {
     let roots = vec![python::ModulePath(vec!["class_imports".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     // Should include class_imports and base_module
     insta::assert_snapshot!(output);
@@ -511,7 +511,7 @@ fn test_conditional_imports() {
     let roots = vec![python::ModulePath(vec!["conditional_imports".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     // Should include conditional_imports, base_module, and another_module
     insta::assert_snapshot!(output);
@@ -526,7 +526,7 @@ fn test_full_graph_with_nested_imports() {
 
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
-    let dot_output = graph.to_dot(false);
+    let dot_output = graph.to_dot(false, false);
 
     // Should show all dependencies including those from nested imports
     insta::assert_snapshot!(dot_output);
@@ -694,7 +694,7 @@ fn test_downstream_graph_dot_format() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -711,7 +711,7 @@ fn test_downstream_graph_mermaid_format() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_mermaid_filtered(&filter, false);
+    let output = graph.to_mermaid_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -728,7 +728,7 @@ fn test_downstream_max_rank_0() {
     ])];
     let downstream = graph.find_downstream(&roots, Some(0));
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -745,7 +745,7 @@ fn test_downstream_max_rank_1() {
     ])];
     let downstream = graph.find_downstream(&roots, Some(1));
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -762,7 +762,7 @@ fn test_downstream_max_rank_2() {
     ])];
     let downstream = graph.find_downstream(&roots, Some(2));
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -779,7 +779,7 @@ fn test_downstream_max_rank_unlimited() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -796,7 +796,7 @@ fn test_downstream_max_rank_with_mermaid_format() {
     ])];
     let downstream = graph.find_downstream(&roots, Some(1));
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_mermaid_filtered(&filter, false);
+    let output = graph.to_mermaid_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -810,7 +810,7 @@ fn test_upstream_list_format() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -824,7 +824,7 @@ fn test_upstream_max_rank_0() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, Some(0));
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -838,7 +838,7 @@ fn test_upstream_max_rank_1() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, Some(1));
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -852,7 +852,7 @@ fn test_upstream_max_rank_2() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, Some(2));
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -866,7 +866,7 @@ fn test_upstream_max_rank_with_dot_format() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, Some(1));
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     insta::assert_snapshot!(output);
 }
@@ -885,7 +885,7 @@ fn test_downstream_multiple_roots_max_rank() {
     ];
     let downstream = graph.find_downstream(&roots, Some(1));
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_list_filtered(&filter);
+    let output = graph.to_list_filtered(&filter, false);
 
     insta::assert_snapshot!(output);
 }
@@ -903,7 +903,7 @@ fn test_orphan_filtering_with_max_rank() {
     ])];
     let downstream = graph.find_downstream(&roots, Some(0));
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_dot_filtered(&filter, false);
+    let output = graph.to_dot_filtered(&filter, false, false);
 
     // Should have nodes but pkg_b.module_b itself might be considered an orphan
     // in the filtered graph (no edges within the filter)
@@ -919,7 +919,7 @@ fn test_downstream_highlighted_dot() {
     let roots = vec![python::ModulePath(vec!["pkg_b".to_string()])];
     let downstream = graph.find_downstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_dot_highlighted(&highlight_set, false);
+    let output = graph.to_dot_highlighted(&highlight_set, false, false);
 
     // Should show full graph with pkg_b and pkg_a.module_a highlighted
     insta::assert_snapshot!(output);
@@ -937,7 +937,7 @@ fn test_downstream_highlighted_mermaid() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_mermaid_highlighted(&highlight_set, false);
+    let output = graph.to_mermaid_highlighted(&highlight_set, false, false);
 
     // Should show full graph with pkg_b.module_b and main highlighted in blue
     insta::assert_snapshot!(output);
@@ -952,7 +952,7 @@ fn test_upstream_highlighted_dot() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_highlighted(&highlight_set, false);
+    let output = graph.to_dot_highlighted(&highlight_set, false, false);
 
     // Should show full graph with main, pkg_b.module_b, pkg_a.module_a highlighted
     insta::assert_snapshot!(output);
@@ -967,7 +967,7 @@ fn test_upstream_highlighted_mermaid() {
     let roots = vec![python::ModulePath(vec!["main".to_string()])];
     let upstream = graph.find_upstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_mermaid_highlighted(&highlight_set, false);
+    let output = graph.to_mermaid_highlighted(&highlight_set, false, false);
 
     // Should show full graph with main, pkg_b.module_b, pkg_a.module_a highlighted in blue
     insta::assert_snapshot!(output);
@@ -990,7 +990,7 @@ fn test_highlighted_with_scripts() {
     ])];
     let upstream = graph.find_upstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
-    let output = graph.to_dot_highlighted(&highlight_set, false);
+    let output = graph.to_dot_highlighted(&highlight_set, false, false);
 
     // Should show full graph with scripts.blah (box shape) and foo.bar highlighted
     insta::assert_snapshot!(output);
@@ -1008,8 +1008,340 @@ fn test_highlighted_orphans_included() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_dot_highlighted(&highlight_set, true);
+    let output = graph.to_dot_highlighted(&highlight_set, true, false);
 
     // Should show full graph including orphans with highlighting
+    insta::assert_snapshot!(output);
+}
+// ============================================================================
+// Namespace Package Tests
+// ============================================================================
+
+fn namespace_packages_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("namespace_packages_project")
+}
+
+// ----------------------------------------------------------------------------
+// Basic Detection & Default Behavior Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_namespace_package_excluded_by_default_dot() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let dot_output = graph.to_dot(false, false);
+    
+    // Should not contain namespace package nodes (pep420_namespace, legacy_namespace)
+    // but should have edges between actual modules
+    insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_namespace_package_excluded_by_default_mermaid() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let mermaid_output = graph.to_mermaid(false, false);
+    
+    // Should not contain namespace package nodes in Mermaid format
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
+fn test_namespace_package_with_orphans() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let dot_output = graph.to_dot(true, false);
+    
+    // Should include orphans but still exclude namespace packages
+    insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_namespace_package_normal_pkg_included() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let dot_output = graph.to_dot(false, false);
+    
+    // Verify normal_pkg is included (it's not a namespace package)
+    assert!(dot_output.contains("normal_pkg"));
+}
+
+#[test]
+fn test_namespace_package_pep420_detected() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    // PEP 420 namespace should be detected but excluded from default output
+    let dot_output = graph.to_dot(false, false);
+    assert!(!dot_output.contains("\"pep420_namespace.sub_a\""));
+    assert!(!dot_output.contains("\"pep420_namespace.sub_b\""));
+}
+
+#[test]
+fn test_namespace_package_legacy_detected() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    // Legacy namespace should be detected but excluded from default output
+    let dot_output = graph.to_dot(false, false);
+    assert!(!dot_output.contains("\"legacy_namespace\""));
+}
+
+// ----------------------------------------------------------------------------
+// Include Flag Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_namespace_package_included_with_flag_dot() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let dot_output = graph.to_dot(false, true);
+    
+    // With include_namespace_packages=true, should show namespace packages
+    // However, they may not appear as nodes if they have no __init__.py modules
+    // This test verifies the flag doesn't break anything
+    insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_namespace_package_included_with_flag_mermaid() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let mermaid_output = graph.to_mermaid(false, true);
+    
+    // Mermaid output with include flag
+    insta::assert_snapshot!(mermaid_output);
+}
+
+// ----------------------------------------------------------------------------
+// Edge Traversal & Transitive Dependencies Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_namespace_package_edge_traversal_dot() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let dot_output = graph.to_dot(false, false);
+    
+    // Should have direct edges that skip namespace packages:
+    // normal_pkg.consumer -> pep420_namespace.sub_b.module_b
+    // pep420_namespace.sub_b.module_b -> pep420_namespace.sub_a.module_a
+    assert!(dot_output.contains("normal_pkg.consumer"));
+    assert!(dot_output.contains("pep420_namespace.sub_b.module_b"));
+    insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_namespace_package_edge_traversal_mermaid() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let mermaid_output = graph.to_mermaid(false, false);
+    
+    // Same edge traversal test for Mermaid format
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
+fn test_namespace_package_transitive_dependencies() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let dot_output = graph.to_dot(false, false);
+    
+    // Verify transitive edges are created:
+    // consumer -> module_b -> module_a -> normal_pkg
+    assert!(dot_output.contains("->"));
+    assert!(dot_output.contains("pep420_namespace.sub_b.module_b"));
+    assert!(dot_output.contains("pep420_namespace.sub_a.module_a"));
+}
+
+// ----------------------------------------------------------------------------
+// Downstream Analysis Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_downstream_with_namespace_packages() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    // Find downstream of pep420_namespace.sub_a.module_a
+    let roots = vec![python::ModulePath(vec![
+        "pep420_namespace".to_string(),
+        "sub_a".to_string(),
+        "module_a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_dot_filtered(&filter, false, false);
+    
+    // Should include module_b and consumer (which depend on module_a)
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_downstream_namespace_list_format() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let roots = vec![python::ModulePath(vec![
+        "pep420_namespace".to_string(),
+        "sub_a".to_string(),
+        "module_a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_list_filtered(&filter, false);
+    
+    // List format should not include namespace package names
+    assert!(!output.contains("pep420_namespace\n"));
+    assert!(!output.contains("legacy_namespace\n"));
+    insta::assert_snapshot!(output);
+}
+
+// ----------------------------------------------------------------------------
+// Upstream Analysis Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_upstream_with_namespace_packages() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    // Find upstream of normal_pkg.consumer
+    let roots = vec![python::ModulePath(vec![
+        "normal_pkg".to_string(),
+        "consumer".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots, None);
+    let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let output = graph.to_dot_filtered(&filter, false, false);
+    
+    // Should include all dependencies (module_b, module_a, etc.)
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_upstream_namespace_list_format() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let roots = vec![python::ModulePath(vec![
+        "normal_pkg".to_string(),
+        "consumer".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots, None);
+    let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let output = graph.to_list_filtered(&filter, false);
+    
+    // List format should not include namespace packages
+    insta::assert_snapshot!(output);
+}
+
+// ----------------------------------------------------------------------------
+// Max-Rank Filtering Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_namespace_package_max_rank_filtering() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    // Find downstream with max_rank=1 (direct dependents only)
+    let roots = vec![python::ModulePath(vec![
+        "pep420_namespace".to_string(),
+        "sub_a".to_string(),
+        "module_a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, Some(1));
+    let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_dot_filtered(&filter, false, false);
+    
+    // Should only include direct dependents
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_namespace_package_max_rank_distance() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    // Test that distances are calculated correctly when skipping namespace packages
+    let roots = vec![python::ModulePath(vec![
+        "normal_pkg".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots, Some(2));
+    let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let output = graph.to_list_filtered(&filter, false);
+    
+    insta::assert_snapshot!(output);
+}
+
+// ----------------------------------------------------------------------------
+// Combined Features Tests
+// ----------------------------------------------------------------------------
+
+#[test]
+fn test_namespace_highlighted_mode() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    // Find downstream and highlight them
+    let roots = vec![python::ModulePath(vec![
+        "pep420_namespace".to_string(),
+        "sub_a".to_string(),
+        "module_a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_dot_highlighted(&highlight_set, false, false);
+    
+    // Should highlight downstream modules but not namespace packages
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_namespace_with_orphans_and_highlighting() {
+    let root = namespace_packages_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze namespace packages project");
+    
+    let roots = vec![python::ModulePath(vec![
+        "normal_pkg".to_string(),
+        "consumer".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let output = graph.to_dot_highlighted(&highlight_set, true, false);
+    
+    // Include orphans and highlight upstream dependencies
     insta::assert_snapshot!(output);
 }

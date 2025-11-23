@@ -109,6 +109,46 @@ Orphan nodes are typically:
 
 This flag is available for all analysis modes (full graph, downstream, and upstream), and works with both DOT and Mermaid output formats.
 
+#### Namespace Package Filtering
+
+By default, namespace packages are **excluded** from the dependency graph output. This applies to both:
+- **Native namespace packages (PEP 420)**: Directories without `__init__.py` that contain Python modules
+- **Legacy namespace packages**: Packages with `__init__.py` containing `pkgutil.extend_path()` or `pkg_resources.declare_namespace()`
+
+When namespace packages are excluded, **transitive edges are preserved**. For example, if module A depends on namespace package N, which contains module B, the output will show a direct edge from A to B.
+
+**To include namespace packages in the output, use the `--include-namespace-packages` flag:**
+
+```bash
+# Include namespace packages in the output
+deptree-utils python ./my-project --include-namespace-packages
+
+# Works with all output formats
+deptree-utils python ./my-project --format mermaid --include-namespace-packages
+```
+
+**Visual distinction:**
+
+When namespace packages are included in the output, they are visually distinguished:
+- **DOT format**: Hexagon shape with dashed style (`[shape=hexagon, style=dashed]`)
+- **Mermaid format**: Hexagon shape (`{{{{ }}}}}`)
+
+**Why exclude namespace packages by default?**
+
+Namespace packages are typically structural/organizational constructs rather than functional modules. Excluding them:
+- Simplifies the dependency graph by focusing on actual code modules
+- Reduces noise in large projects with many namespace packages
+- Makes it easier to understand the true dependencies between functional components
+- Preserves transitive relationships so no dependency information is lost
+
+**Use cases for including namespace packages:**
+- Analyzing the complete package structure including organizational constructs
+- Debugging namespace package issues
+- Understanding how namespace packages are used in the project
+- Creating comprehensive documentation that shows all package levels
+
+This flag is available for all analysis modes (full graph, downstream, and upstream), and works with both DOT and Mermaid output formats.
+
 #### Source Root Detection
 The analyzer automatically detects the Python source root to correctly handle projects with different layouts.
 

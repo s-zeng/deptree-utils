@@ -243,6 +243,7 @@ pub struct DependencyGraph {
     graph: DiGraph<ModulePath, ()>,
     node_indices: HashMap<ModulePath, NodeIndex>,
     scripts: HashSet<ModulePath>, // Track which modules are scripts (outside source root)
+    namespace_packages: HashSet<ModulePath>, // Track namespace packages (PEP 420 and legacy)
 }
 
 impl DependencyGraph {
@@ -251,6 +252,7 @@ impl DependencyGraph {
             graph: DiGraph::new(),
             node_indices: HashMap::new(),
             scripts: HashSet::new(),
+            namespace_packages: HashSet::new(),
         }
     }
 
@@ -262,6 +264,16 @@ impl DependencyGraph {
     /// Check if a module is a script
     pub fn is_script(&self, module: &ModulePath) -> bool {
         self.scripts.contains(module)
+    }
+
+    /// Mark a module as a namespace package
+    pub fn mark_as_namespace_package(&mut self, module: &ModulePath) {
+        self.namespace_packages.insert(module.clone());
+    }
+
+    /// Check if a module is a namespace package
+    pub fn is_namespace_package(&self, module: &ModulePath) -> bool {
+        self.namespace_packages.contains(module)
     }
 
     /// Get or create a node for the given module
@@ -282,8 +294,40 @@ impl DependencyGraph {
         self.graph.add_edge(from_idx, to_idx, ());
     }
 
+    /// Helper function to find all non-namespace package targets reachable through namespace packages
+    /// Uses DFS to traverse through namespace packages and calls the callback for each non-namespace target found
+    fn find_transitive_non_namespace_targets<F>(
+        &self,
+        start_idx: NodeIndex,
+        visited: &mut HashSet<NodeIndex>,
+        visible_nodes: &HashSet<NodeIndex>,
+        callback: &mut F,
+    ) where
+        F: FnMut(NodeIndex),
+    {
+        // Mark as visited to avoid infinite loops
+        if !visited.insert(start_idx) {
+            return;
+        }
+
+        let start_module = &self.graph[start_idx];
+
+        // If this is not a namespace package and it's visible, call the callback
+        if !self.is_namespace_package(start_module) && visible_nodes.contains(&start_idx) {
+            callback(start_idx);
+            return;
+        }
+
+        // Otherwise, if this is a namespace package, continue traversing
+        if self.is_namespace_package(start_module) {
+            for neighbor_idx in self.graph.neighbors(start_idx) {
+                self.find_transitive_non_namespace_targets(neighbor_idx, visited, visible_nodes, callback);
+            }
+        }
+    }
+
     /// Convert the graph to Graphviz DOT format
-    pub fn to_dot(&self, include_orphans: bool) -> String {
+    pub fn to_dot(&self, include_orphans: bool, include_namespace_packages: bool) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
         output.push_str(
@@ -293,6 +337,14 @@ impl DependencyGraph {
         // Collect and sort nodes for deterministic output
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out namespace packages unless explicitly requested
+        if !include_namespace_packages {
+            nodes.retain(|idx| {
+                let module = &self.graph[*idx];
+                !self.is_namespace_package(module)
+            });
+        }
 
         // Filter out orphan nodes unless explicitly requested
         if !include_orphans {
@@ -317,19 +369,61 @@ impl DependencyGraph {
             if self.is_script(module) {
                 // Scripts get a different visual style (box shape)
                 output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
+            } else if self.is_namespace_package(module) && include_namespace_packages {
+                // Namespace packages get a distinct visual style (hexagon shape)
+                output.push_str(&format!("    \"{}\" [shape=hexagon, style=dashed];\n", module.to_dotted()));
             } else {
                 output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
             }
         }
 
-        // Collect and sort edges for deterministic output
-        let mut edges: Vec<_> = self
-            .graph
-            .edge_indices()
-            .filter_map(|e| self.graph.edge_endpoints(e))
-            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-            .collect();
+        // Collect edges, with transitive edge preservation for namespace packages
+        let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        if !include_namespace_packages {
+            // When excluding namespace packages, we need to create transitive edges
+            // For each edge in the original graph, if either endpoint is a namespace package,
+            // we need to find the transitive path through namespace packages
+            for from_idx in self.graph.node_indices() {
+                let from_module = &self.graph[from_idx];
+
+                // Skip if this node is filtered out
+                if !node_set.contains(&from_idx) {
+                    continue;
+                }
+
+                // Find all reachable non-namespace nodes through namespace packages
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        // This is a namespace package, traverse through it
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
+                            let target_module = &self.graph[target_idx];
+                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                        });
+                    } else if node_set.contains(&to_idx) {
+                        // Direct edge to a non-namespace package
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            // Include all edges between visible nodes
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        // Remove duplicates and sort edges for deterministic output
         edges.sort();
+        edges.dedup();
 
         // Add edges
         for (from_name, to_name) in edges {
@@ -346,6 +440,7 @@ impl DependencyGraph {
         &self,
         highlight_set: &HashSet<ModulePath>,
         include_orphans: bool,
+        include_namespace_packages: bool,
     ) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
@@ -357,6 +452,14 @@ impl DependencyGraph {
         // Collect and sort nodes for deterministic output
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out namespace packages unless explicitly requested
+        if !include_namespace_packages {
+            nodes.retain(|idx| {
+                let module = &self.graph[*idx];
+                !self.is_namespace_package(module)
+            });
+        }
 
         // Filter out orphan nodes unless explicitly requested
         if !include_orphans {
@@ -379,6 +482,7 @@ impl DependencyGraph {
         for idx in &nodes {
             let module = &self.graph[*idx];
             let is_highlighted = highlight_set.contains(module);
+            let is_ns_pkg = self.is_namespace_package(module);
 
             if self.is_script(module) {
                 // Scripts get a different visual style (box shape)
@@ -389,6 +493,16 @@ impl DependencyGraph {
                     ));
                 } else {
                     output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
+                }
+            } else if is_ns_pkg && include_namespace_packages {
+                // Namespace packages get distinct visual style
+                if is_highlighted {
+                    output.push_str(&format!(
+                        "    \"{}\" [shape=hexagon, fillcolor=lightblue, style=filled];\n",
+                        module.to_dotted()
+                    ));
+                } else {
+                    output.push_str(&format!("    \"{}\" [shape=hexagon, style=dashed];\n", module.to_dotted()));
                 }
             } else {
                 // Regular modules
@@ -403,14 +517,46 @@ impl DependencyGraph {
             }
         }
 
-        // Collect and sort edges for deterministic output
-        let mut edges: Vec<_> = self
-            .graph
-            .edge_indices()
-            .filter_map(|e| self.graph.edge_endpoints(e))
-            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-            .collect();
+        // Collect edges with transitive edge preservation for namespace packages
+        let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        if !include_namespace_packages {
+            // When excluding namespace packages, create transitive edges
+            for from_idx in self.graph.node_indices() {
+                let from_module = &self.graph[from_idx];
+
+                if !node_set.contains(&from_idx) {
+                    continue;
+                }
+
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
+                            let target_module = &self.graph[target_idx];
+                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                        });
+                    } else if node_set.contains(&to_idx) {
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        // Remove duplicates and sort edges
         edges.sort();
+        edges.dedup();
 
         // Add edges
         for (from_name, to_name) in edges {
@@ -422,12 +568,20 @@ impl DependencyGraph {
     }
 
     /// Convert the graph to Mermaid flowchart format
-    pub fn to_mermaid(&self, include_orphans: bool) -> String {
+    pub fn to_mermaid(&self, include_orphans: bool, include_namespace_packages: bool) -> String {
         let mut output = String::from("flowchart TD\n");
 
         // Collect and sort nodes for deterministic output
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out namespace packages unless explicitly requested
+        if !include_namespace_packages {
+            nodes.retain(|idx| {
+                let module = &self.graph[*idx];
+                !self.is_namespace_package(module)
+            });
+        }
 
         // Filter out orphan nodes unless explicitly requested
         if !include_orphans {
@@ -446,14 +600,46 @@ impl DependencyGraph {
             });
         }
 
-        // Collect and sort edges for deterministic output
-        let mut edges: Vec<_> = self
-            .graph
-            .edge_indices()
-            .filter_map(|e| self.graph.edge_endpoints(e))
-            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-            .collect();
+        // Collect edges with transitive edge preservation for namespace packages
+        let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        if !include_namespace_packages {
+            // When excluding namespace packages, create transitive edges
+            for from_idx in self.graph.node_indices() {
+                let from_module = &self.graph[from_idx];
+
+                if !node_set.contains(&from_idx) {
+                    continue;
+                }
+
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
+                            let target_module = &self.graph[target_idx];
+                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                        });
+                    } else if node_set.contains(&to_idx) {
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        // Remove duplicates and sort edges
         edges.sort();
+        edges.dedup();
 
         // Create a set of nodes that appear in edges for efficient lookup
         let nodes_in_edges: std::collections::HashSet<String> = edges
@@ -472,6 +658,9 @@ impl DependencyGraph {
                 if self.is_script(module) {
                     // Scripts get rectangle shape
                     output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
+                } else if self.is_namespace_package(module) && include_namespace_packages {
+                    // Namespace packages get hexagon shape
+                    output.push_str(&format!("    {}{{{{\"{}\"}}}} \n", node_id, module_name));
                 } else {
                     // Modules get rounded rectangle shape
                     output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
@@ -484,28 +673,35 @@ impl DependencyGraph {
             let from_id = sanitize_mermaid_id(&from_name);
             let to_id = sanitize_mermaid_id(&to_name);
 
-            // Determine shapes based on whether modules are scripts
-            let from_module = self.node_indices.get(&ModulePath(
-                from_name.split('.').map(String::from).collect(),
-            ));
-            let to_module = self.node_indices.get(&ModulePath(
-                to_name.split('.').map(String::from).collect(),
-            ));
+            // Determine shapes based on whether modules are scripts or namespace packages
+            let from_module_path = ModulePath(from_name.split('.').map(String::from).collect());
+            let to_module_path = ModulePath(to_name.split('.').map(String::from).collect());
 
-            let from_shape = if from_module.map(|idx| {
+            let from_module = self.node_indices.get(&from_module_path);
+            let to_module = self.node_indices.get(&to_module_path);
+
+            let from_shape = if let Some(idx) = from_module {
                 let m = &self.graph[*idx];
-                self.is_script(m)
-            }).unwrap_or(false) {
-                format!("{}[\"{}\"", from_id, from_name)
+                if self.is_script(m) {
+                    format!("{}[\"{}\"", from_id, from_name)
+                } else if self.is_namespace_package(m) && include_namespace_packages {
+                    format!("{}{{{{\"{}\"", from_id, from_name)
+                } else {
+                    format!("{}(\"{}\"", from_id, from_name)
+                }
             } else {
                 format!("{}(\"{}\"", from_id, from_name)
             };
 
-            let to_shape = if to_module.map(|idx| {
+            let to_shape = if let Some(idx) = to_module {
                 let m = &self.graph[*idx];
-                self.is_script(m)
-            }).unwrap_or(false) {
-                format!("{}[\"{}\"", to_id, to_name)
+                if self.is_script(m) {
+                    format!("{}[\"{}\"", to_id, to_name)
+                } else if self.is_namespace_package(m) && include_namespace_packages {
+                    format!("{}{{{{\"{}\"", to_id, to_name)
+                } else {
+                    format!("{}(\"{}\"", to_id, to_name)
+                }
             } else {
                 format!("{}(\"{}\"", to_id, to_name)
             };
@@ -513,12 +709,16 @@ impl DependencyGraph {
             // Close the shapes
             let from_def = if from_shape.contains('[') {
                 format!("{}]", from_shape)
+            } else if from_shape.contains("{{{{") {
+                format!("{}}}}}", from_shape)
             } else {
                 format!("{})", from_shape)
             };
 
             let to_def = if to_shape.contains('[') {
                 format!("{}]", to_shape)
+            } else if to_shape.contains("{{{{") {
+                format!("{}}}}}", to_shape)
             } else {
                 format!("{})", to_shape)
             };
@@ -535,12 +735,21 @@ impl DependencyGraph {
         &self,
         highlight_set: &HashSet<ModulePath>,
         include_orphans: bool,
+        include_namespace_packages: bool,
     ) -> String {
         let mut output = String::from("flowchart TD\n");
 
         // Collect and sort nodes for deterministic output
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out namespace packages unless explicitly requested
+        if !include_namespace_packages {
+            nodes.retain(|idx| {
+                let module = &self.graph[*idx];
+                !self.is_namespace_package(module)
+            });
+        }
 
         // Filter out orphan nodes unless explicitly requested
         if !include_orphans {
@@ -559,14 +768,46 @@ impl DependencyGraph {
             });
         }
 
-        // Collect and sort edges for deterministic output
-        let mut edges: Vec<_> = self
-            .graph
-            .edge_indices()
-            .filter_map(|e| self.graph.edge_endpoints(e))
-            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-            .collect();
+        // Collect edges with transitive edge preservation for namespace packages
+        let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        if !include_namespace_packages {
+            // When excluding namespace packages, create transitive edges
+            for from_idx in self.graph.node_indices() {
+                let from_module = &self.graph[from_idx];
+
+                if !node_set.contains(&from_idx) {
+                    continue;
+                }
+
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
+                            let target_module = &self.graph[target_idx];
+                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                        });
+                    } else if node_set.contains(&to_idx) {
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        // Remove duplicates and sort edges
         edges.sort();
+        edges.dedup();
 
         // Create a set of nodes that appear in edges for efficient lookup
         let nodes_in_edges: std::collections::HashSet<String> = edges
@@ -586,18 +827,13 @@ impl DependencyGraph {
 
                 if self.is_script(module) {
                     // Scripts get rectangle shape
-                    if is_highlighted {
-                        output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
-                    } else {
-                        output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
-                    }
+                    output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
+                } else if self.is_namespace_package(module) && include_namespace_packages {
+                    // Namespace packages get hexagon shape
+                    output.push_str(&format!("    {}{{{{\"{}\"}}}} \n", node_id, module_name));
                 } else {
                     // Modules get rounded rectangle shape
-                    if is_highlighted {
-                        output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
-                    } else {
-                        output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
-                    }
+                    output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
                 }
 
                 // Apply highlighting class if needed
@@ -652,12 +888,16 @@ impl DependencyGraph {
             // Close the shapes
             let from_def = if from_shape.contains('[') {
                 format!("{}]", from_shape)
+            } else if from_shape.contains("{{{{") {
+                format!("{}}}}}", from_shape)
             } else {
                 format!("{})", from_shape)
             };
 
             let to_def = if to_shape.contains('[') {
                 format!("{}]", to_shape)
+            } else if to_shape.contains("{{{{") {
+                format!("{}}}}}", to_shape)
             } else {
                 format!("{})", to_shape)
             };
@@ -684,7 +924,7 @@ impl DependencyGraph {
 
     /// Convert a filtered set of modules to Graphviz DOT format (subgraph).
     /// Only includes nodes and edges where both endpoints are in the filtered set.
-    pub fn to_dot_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool) -> String {
+    pub fn to_dot_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool, include_namespace_packages: bool) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
         output.push_str(
@@ -698,6 +938,14 @@ impl DependencyGraph {
             .filter(|idx| filter.contains(&self.graph[*idx]))
             .collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out namespace packages unless explicitly requested
+        if !include_namespace_packages {
+            nodes.retain(|idx| {
+                let module = &self.graph[*idx];
+                !self.is_namespace_package(module)
+            });
+        }
 
         // Filter out orphan nodes unless explicitly requested
         if !include_orphans {
@@ -722,22 +970,58 @@ impl DependencyGraph {
             if self.is_script(module) {
                 // Scripts get a different visual style (box shape)
                 output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
+            } else if self.is_namespace_package(module) && include_namespace_packages {
+                // Namespace packages get distinct visual style
+                output.push_str(&format!("    \"{}\" [shape=hexagon, style=dashed];\n", module.to_dotted()));
             } else {
                 output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
             }
         }
 
-        // Collect and sort edges where both endpoints are in the filter
-        let mut edges: Vec<_> = self
-            .graph
-            .edge_indices()
-            .filter_map(|e| self.graph.edge_endpoints(e))
-            .filter(|(from, to)| {
-                filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
-            })
-            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-            .collect();
+        // Collect edges with transitive edge preservation for namespace packages
+        let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        if !include_namespace_packages {
+            // When excluding namespace packages, create transitive edges
+            for from_idx in self.graph.node_indices() {
+                let from_module = &self.graph[from_idx];
+
+                if !filter.contains(from_module) || !node_set.contains(&from_idx) {
+                    continue;
+                }
+
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
+                            let target_module = &self.graph[target_idx];
+                            if filter.contains(target_module) {
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            }
+                        });
+                    } else if filter.contains(to_module) && node_set.contains(&to_idx) {
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| {
+                    filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
+                })
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        // Remove duplicates and sort edges
         edges.sort();
+        edges.dedup();
 
         // Add edges
         for (from_name, to_name) in edges {
@@ -750,7 +1034,7 @@ impl DependencyGraph {
 
     /// Convert a filtered set of modules to Mermaid flowchart format (subgraph).
     /// Only includes nodes and edges where both endpoints are in the filtered set.
-    pub fn to_mermaid_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool) -> String {
+    pub fn to_mermaid_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool, include_namespace_packages: bool) -> String {
         let mut output = String::from("flowchart TD\n");
 
         // Collect and sort nodes that are in the filter
@@ -760,6 +1044,14 @@ impl DependencyGraph {
             .filter(|idx| filter.contains(&self.graph[*idx]))
             .collect();
         nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Filter out namespace packages unless explicitly requested
+        if !include_namespace_packages {
+            nodes.retain(|idx| {
+                let module = &self.graph[*idx];
+                !self.is_namespace_package(module)
+            });
+        }
 
         // Filter out orphan nodes unless explicitly requested
         if !include_orphans {
@@ -778,17 +1070,50 @@ impl DependencyGraph {
             });
         }
 
-        // Collect and sort edges where both endpoints are in the filter
-        let mut edges: Vec<_> = self
-            .graph
-            .edge_indices()
-            .filter_map(|e| self.graph.edge_endpoints(e))
-            .filter(|(from, to)| {
-                filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
-            })
-            .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-            .collect();
+        // Collect edges with transitive edge preservation for namespace packages
+        let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        if !include_namespace_packages {
+            // When excluding namespace packages, create transitive edges
+            for from_idx in self.graph.node_indices() {
+                let from_module = &self.graph[from_idx];
+
+                if !filter.contains(from_module) || !node_set.contains(&from_idx) {
+                    continue;
+                }
+
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
+                            let target_module = &self.graph[target_idx];
+                            if filter.contains(target_module) {
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            }
+                        });
+                    } else if filter.contains(to_module) && node_set.contains(&to_idx) {
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| {
+                    filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
+                })
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        // Remove duplicates and sort edges
         edges.sort();
+        edges.dedup();
 
         // Create a set of nodes that appear in edges for efficient lookup
         let nodes_in_edges: std::collections::HashSet<String> = edges
@@ -807,6 +1132,9 @@ impl DependencyGraph {
                 if self.is_script(module) {
                     // Scripts get rectangle shape
                     output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
+                } else if self.is_namespace_package(module) && include_namespace_packages {
+                    // Namespace packages get hexagon shape
+                    output.push_str(&format!("    {}{{{{\"{}\"}}}} \n", node_id, module_name));
                 } else {
                     // Modules get rounded rectangle shape
                     output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
@@ -819,28 +1147,35 @@ impl DependencyGraph {
             let from_id = sanitize_mermaid_id(&from_name);
             let to_id = sanitize_mermaid_id(&to_name);
 
-            // Determine shapes based on whether modules are scripts
-            let from_module = self.node_indices.get(&ModulePath(
-                from_name.split('.').map(String::from).collect(),
-            ));
-            let to_module = self.node_indices.get(&ModulePath(
-                to_name.split('.').map(String::from).collect(),
-            ));
+            // Determine shapes based on whether modules are scripts or namespace packages
+            let from_module_path = ModulePath(from_name.split('.').map(String::from).collect());
+            let to_module_path = ModulePath(to_name.split('.').map(String::from).collect());
 
-            let from_shape = if from_module.map(|idx| {
+            let from_module = self.node_indices.get(&from_module_path);
+            let to_module = self.node_indices.get(&to_module_path);
+
+            let from_shape = if let Some(idx) = from_module {
                 let m = &self.graph[*idx];
-                self.is_script(m)
-            }).unwrap_or(false) {
-                format!("{}[\"{}\"", from_id, from_name)
+                if self.is_script(m) {
+                    format!("{}[\"{}\"", from_id, from_name)
+                } else if self.is_namespace_package(m) && include_namespace_packages {
+                    format!("{}{{{{\"{}\"", from_id, from_name)
+                } else {
+                    format!("{}(\"{}\"", from_id, from_name)
+                }
             } else {
                 format!("{}(\"{}\"", from_id, from_name)
             };
 
-            let to_shape = if to_module.map(|idx| {
+            let to_shape = if let Some(idx) = to_module {
                 let m = &self.graph[*idx];
-                self.is_script(m)
-            }).unwrap_or(false) {
-                format!("{}[\"{}\"", to_id, to_name)
+                if self.is_script(m) {
+                    format!("{}[\"{}\"", to_id, to_name)
+                } else if self.is_namespace_package(m) && include_namespace_packages {
+                    format!("{}{{{{\"{}\"", to_id, to_name)
+                } else {
+                    format!("{}(\"{}\"", to_id, to_name)
+                }
             } else {
                 format!("{}(\"{}\"", to_id, to_name)
             };
@@ -848,12 +1183,16 @@ impl DependencyGraph {
             // Close the shapes
             let from_def = if from_shape.contains('[') {
                 format!("{}]", from_shape)
+            } else if from_shape.contains("{{{{") {
+                format!("{}}}}}", from_shape)
             } else {
                 format!("{})", from_shape)
             };
 
             let to_def = if to_shape.contains('[') {
                 format!("{}]", to_shape)
+            } else if to_shape.contains("{{{{") {
+                format!("{}}}}}", to_shape)
             } else {
                 format!("{})", to_shape)
             };
@@ -991,8 +1330,12 @@ impl DependencyGraph {
     }
 
     /// Convert a filtered set of modules to a sorted, newline-separated list of dotted module names
-    pub fn to_list_filtered(&self, filter: &HashSet<ModulePath>) -> String {
-        let mut sorted_modules: Vec<String> = filter.iter().map(|m| m.to_dotted()).collect();
+    pub fn to_list_filtered(&self, filter: &HashSet<ModulePath>, include_namespace_packages: bool) -> String {
+        let mut sorted_modules: Vec<String> = filter
+            .iter()
+            .filter(|m| include_namespace_packages || !self.is_namespace_package(m))
+            .map(|m| m.to_dotted())
+            .collect();
         sorted_modules.sort();
         sorted_modules.join("\n")
     }
@@ -1002,6 +1345,53 @@ impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Check if a given Python package directory is a namespace package
+///
+/// Detects two types:
+/// 1. Native namespace packages (PEP 420): directories without __init__.py
+/// 2. Legacy namespace packages: __init__.py containing pkgutil.extend_path() or pkg_resources.declare_namespace()
+///
+/// # Arguments
+/// * `package_path` - Path to the package directory (should be a directory, not a file)
+///
+/// # Returns
+/// `true` if the directory is a namespace package, `false` otherwise
+fn is_namespace_package(package_path: &Path) -> bool {
+    if !package_path.is_dir() {
+        return false;
+    }
+
+    let init_path = package_path.join("__init__.py");
+
+    // Native namespace package (PEP 420): directory with Python files but no __init__.py
+    if !init_path.exists() {
+        // Check if there are any .py files in the directory
+        if let Ok(entries) = std::fs::read_dir(package_path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                if let Some(ext) = entry.path().extension() {
+                    if ext == "py" {
+                        return true; // Found a .py file without __init__.py -> namespace package
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Legacy namespace package: check __init__.py content for namespace declarations
+    if let Ok(content) = std::fs::read_to_string(&init_path) {
+        // Look for common namespace package patterns
+        let has_pkgutil = content.contains("pkgutil.extend_path");
+        let has_pkg_resources = content.contains("pkg_resources.declare_namespace");
+
+        if has_pkgutil || has_pkg_resources {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Analyze a Python project and return its internal dependency graph
@@ -1039,6 +1429,33 @@ pub fn analyze_project(
         let path = entry.path();
         if let Some(module_path) = ModulePath::from_file_path(path, &actual_source_root) {
             modules.insert(module_path, path.to_path_buf());
+        }
+    }
+
+    // Detect namespace packages in the source root
+    // We need to check all directories that could be packages
+    for entry in WalkDir::new(&actual_source_root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir() && e.path() != actual_source_root)
+    {
+        let dir_path = entry.path();
+        if is_namespace_package(dir_path) {
+            // Convert directory path to ModulePath
+            if let Some(module_path) = ModulePath::from_file_path(
+                &dir_path.join("__dummy__.py"), // Temporary file to get package path
+                &actual_source_root,
+            ) {
+                // Remove the dummy file part to get the package path
+                let mut package_parts = module_path.0;
+                if !package_parts.is_empty() && package_parts.last() == Some(&"__dummy__".to_string()) {
+                    package_parts.pop();
+                    if !package_parts.is_empty() {
+                        let package_module_path = ModulePath(package_parts);
+                        graph.mark_as_namespace_package(&package_module_path);
+                    }
+                }
+            }
         }
     }
 

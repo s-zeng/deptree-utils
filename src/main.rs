@@ -156,6 +156,10 @@ enum Command {
         /// Show full graph with highlighted nodes instead of filtering (requires --downstream or --upstream)
         #[arg(long)]
         show_all: bool,
+
+        /// Include namespace packages in the output (by default they are excluded)
+        #[arg(long)]
+        include_namespace_packages: bool,
     },
 }
 
@@ -181,6 +185,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             exclude_scripts,
             include_orphans,
             show_all,
+            include_namespace_packages,
         } => {
             // Determine the source root first (needed for parsing module inputs with file paths)
             let actual_source_root = if let Some(explicit_root) = source_root.as_ref() {
@@ -348,16 +353,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match output_format {
                     python::OutputFormat::Dot => {
                         if show_all {
-                            println!("{}", graph.to_dot_highlighted(&filter, include_orphans));
+                            println!("{}", graph.to_dot_highlighted(&filter, include_orphans, include_namespace_packages));
                         } else {
-                            println!("{}", graph.to_dot_filtered(&filter, include_orphans));
+                            println!("{}", graph.to_dot_filtered(&filter, include_orphans, include_namespace_packages));
                         }
                     }
                     python::OutputFormat::Mermaid => {
                         if show_all {
-                            println!("{}", graph.to_mermaid_highlighted(&filter, include_orphans));
+                            println!("{}", graph.to_mermaid_highlighted(&filter, include_orphans, include_namespace_packages));
                         } else {
-                            println!("{}", graph.to_mermaid_filtered(&filter, include_orphans));
+                            println!("{}", graph.to_mermaid_filtered(&filter, include_orphans, include_namespace_packages));
                         }
                     }
                     python::OutputFormat::List => {
@@ -366,17 +371,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 "--show-all cannot be used with --format list".into()
                             );
                         }
-                        println!("{}", graph.to_list_filtered(&filter));
+                        println!("{}", graph.to_list_filtered(&filter, include_namespace_packages));
                     }
                 }
             } else {
                 // Default behavior: output full graph in the specified format
                 match output_format {
                     python::OutputFormat::Dot => {
-                        println!("{}", graph.to_dot(include_orphans));
+                        println!("{}", graph.to_dot(include_orphans, include_namespace_packages));
                     }
                     python::OutputFormat::Mermaid => {
-                        println!("{}", graph.to_mermaid(include_orphans));
+                        println!("{}", graph.to_mermaid(include_orphans, include_namespace_packages));
                     }
                     python::OutputFormat::List => {
                         return Err(
