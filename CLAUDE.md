@@ -55,7 +55,7 @@ The analyzer:
 
 #### Output Format Selection
 
-You can choose between Graphviz DOT, Mermaid flowchart, and plain list formats using the `--format` flag:
+You can choose between Graphviz DOT, Mermaid flowchart, Cytoscape HTML, and plain list formats using the `--format` flag:
 
 ```bash
 # DOT format (default) - for use with Graphviz
@@ -63,6 +63,9 @@ deptree-utils python ./my-project --format dot
 
 # Mermaid format - for use in Markdown, GitHub, documentation
 deptree-utils python ./my-project --format mermaid
+
+# Cytoscape format - interactive HTML visualization
+deptree-utils python ./my-project --format cytoscape > graph.html
 
 # List format - for downstream/upstream analysis only
 deptree-utils python ./my-project --downstream pkg_a --format list
@@ -84,7 +87,24 @@ deptree-utils python ./my-project --downstream pkg_a --format list
 - Only available with `--downstream` or `python-upstream` commands
 - Useful for scripting and programmatic processing
 
-All graph formats (DOT and Mermaid):
+**Cytoscape format:**
+- Outputs a **self-contained HTML file** with interactive dependency graph visualization
+- No external tools required to view (opens directly in any web browser)
+- Interactive features: pan, zoom, node selection, export to PNG
+- Automatic hierarchical layout using Dagre algorithm (left-to-right flow)
+- Visual styling:
+  - **Modules**: Blue ellipses
+  - **Scripts**: Green rectangles
+  - **Namespace packages**: Orange hexagons (dashed border)
+  - **Highlighted nodes**: Light blue with thick border (for --show-all mode)
+- Example: `deptree-utils python ./my-project --format cytoscape > graph.html`
+- Use cases:
+  - Sharing visualizations with non-technical stakeholders
+  - Interactive exploration of large codebases
+  - Presentations and documentation (no Graphviz or rendering tools needed)
+  - Quick visual analysis without installing additional tools
+
+All graph formats (DOT, Mermaid, and Cytoscape):
 - Support the `--include-orphans` flag
 - Work with upstream (`python-upstream`) and downstream analysis
 - Provide deterministic, sorted output for version control
@@ -92,14 +112,15 @@ All graph formats (DOT and Mermaid):
 
 **Orphan Node Filtering:**
 
-By default, graph output (both DOT and Mermaid) excludes orphan nodes (modules that have no incoming or outgoing edges). This keeps the graph focused on modules that are part of the dependency structure.
+By default, graph output (DOT, Mermaid, and Cytoscape) excludes orphan nodes (modules that have no incoming or outgoing edges). This keeps the graph focused on modules that are part of the dependency structure.
 
 To include orphan nodes in the output, use the `--include-orphans` flag:
 
 ```bash
-# Include orphan nodes in the output (works with both formats)
+# Include orphan nodes in the output (works with all graph formats)
 deptree-utils python ./my-project --include-orphans
 deptree-utils python ./my-project --format mermaid --include-orphans
+deptree-utils python ./my-project --format cytoscape --include-orphans > graph.html
 ```
 
 Orphan nodes are typically:
@@ -107,7 +128,7 @@ Orphan nodes are typically:
 - Dead code that's not connected to the rest of the project
 - New modules that haven't been integrated yet
 
-This flag is available for all analysis modes (full graph, downstream, and upstream), and works with both DOT and Mermaid output formats.
+This flag is available for all analysis modes (full graph, downstream, and upstream), and works with all graph output formats (DOT, Mermaid, and Cytoscape).
 
 #### Namespace Package Filtering
 
@@ -147,7 +168,7 @@ Namespace packages are typically structural/organizational constructs rather tha
 - Understanding how namespace packages are used in the project
 - Creating comprehensive documentation that shows all package levels
 
-This flag is available for all analysis modes (full graph, downstream, and upstream), and works with both DOT and Mermaid output formats.
+This flag is available for all analysis modes (full graph, downstream, and upstream), and works with all graph output formats (DOT, Mermaid, and Cytoscape).
 
 #### Source Root Detection
 The analyzer automatically detects the Python source root to correctly handle projects with different layouts.

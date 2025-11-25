@@ -34,6 +34,7 @@ pub enum OutputFormat {
     Dot,
     Mermaid,
     List,
+    Cytoscape,
 }
 
 /// Represents a Python module within the project
@@ -236,6 +237,54 @@ fn visit_stmts(stmts: &[ruff_python_ast::Stmt], imports: &mut Vec<Import>) {
 /// Replaces dots with underscores since dots are not valid in Mermaid IDs
 fn sanitize_mermaid_id(name: &str) -> String {
     name.replace('.', "_")
+}
+
+/// Escape special characters for JSON string values
+fn escape_json_string(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+/// Generate a Cytoscape.js JSON node element
+fn cytoscape_node_json(
+    id: &str,
+    is_script: bool,
+    is_namespace: bool,
+    is_highlighted: bool,
+) -> String {
+    let node_type = if is_script {
+        "script"
+    } else if is_namespace {
+        "namespace"
+    } else {
+        "module"
+    };
+
+    let highlighted_attr = if is_highlighted {
+        r#", "highlighted": true"#
+    } else {
+        ""
+    };
+
+    format!(
+        r#"    {{ "data": {{ "id": "{}", "label": "{}", "type": "{}" {} }} }}"#,
+        escape_json_string(id),
+        escape_json_string(id),
+        node_type,
+        highlighted_attr
+    )
+}
+
+/// Generate a Cytoscape.js JSON edge element
+fn cytoscape_edge_json(source: &str, target: &str) -> String {
+    format!(
+        r#"    {{ "data": {{ "source": "{}", "target": "{}" }} }}"#,
+        escape_json_string(source),
+        escape_json_string(target)
+    )
 }
 
 /// The dependency graph of Python modules
@@ -1339,12 +1388,445 @@ impl DependencyGraph {
         sorted_modules.sort();
         sorted_modules.join("\n")
     }
+
+    /// Convert the graph to self-contained Cytoscape.js HTML
+    pub fn to_cytoscape(&self, include_orphans: bool, include_namespace_packages: bool) -> String {
+        self.to_cytoscape_internal(None, include_orphans, include_namespace_packages)
+    }
+
+    /// Convert a filtered set of modules to Cytoscape.js HTML (subgraph)
+    pub fn to_cytoscape_filtered(
+        &self,
+        filter: &HashSet<ModulePath>,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> String {
+        self.to_cytoscape_internal(Some((filter, false)), include_orphans, include_namespace_packages)
+    }
+
+    /// Convert the full graph to Cytoscape.js HTML with highlighted nodes
+    pub fn to_cytoscape_highlighted(
+        &self,
+        highlight_set: &HashSet<ModulePath>,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> String {
+        self.to_cytoscape_internal(Some((highlight_set, true)), include_orphans, include_namespace_packages)
+    }
+
+    /// Internal method that generates Cytoscape.js HTML with optional filtering/highlighting
+    ///
+    /// Parameters:
+    /// - filter_mode: None for full graph, Some((set, false)) for filtered, Some((set, true)) for highlighted
+    /// - include_orphans: Whether to include orphan nodes
+    /// - include_namespace_packages: Whether to include namespace packages
+    fn to_cytoscape_internal(
+        &self,
+        filter_mode: Option<(&HashSet<ModulePath>, bool)>,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> String {
+        // Determine which nodes to include
+        let (filter_set, is_highlighting_mode) = match filter_mode {
+            Some((set, is_highlight)) => (Some(set), is_highlight),
+            None => (None, false),
+        };
+
+        // Collect and sort nodes
+        let mut nodes: Vec<_> = self.graph.node_indices().collect();
+        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        // Apply filtering based on mode
+        if let Some(filter) = filter_set {
+            if !is_highlighting_mode {
+                // Filtered mode: only include nodes in filter
+                nodes.retain(|idx| filter.contains(&self.graph[*idx]));
+            }
+            // In highlighting mode, we keep all nodes
+        }
+
+        // Filter out namespace packages unless explicitly requested
+        if !include_namespace_packages {
+            nodes.retain(|idx| {
+                let module = &self.graph[*idx];
+                !self.is_namespace_package(module)
+            });
+        }
+
+        // Filter out orphan nodes unless explicitly requested
+        if !include_orphans {
+            nodes.retain(|idx| {
+                let has_incoming = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Incoming)
+                    .count()
+                    > 0;
+                let has_outgoing = self
+                    .graph
+                    .neighbors_directed(*idx, Direction::Outgoing)
+                    .count()
+                    > 0;
+                has_incoming || has_outgoing
+            });
+        }
+
+        // Build node elements JSON
+        let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let mut node_elements = Vec::new();
+
+        for idx in &nodes {
+            let module = &self.graph[*idx];
+            let module_name = module.to_dotted();
+            let is_script = self.is_script(module);
+            let is_namespace = self.is_namespace_package(module);
+            let is_highlighted = filter_set
+                .map(|f| is_highlighting_mode && f.contains(module))
+                .unwrap_or(false);
+
+            node_elements.push(cytoscape_node_json(
+                &module_name,
+                is_script,
+                is_namespace,
+                is_highlighted,
+            ));
+        }
+
+        // Build edge elements JSON with transitive edge preservation for namespace packages
+        let mut edges: Vec<(String, String)> = Vec::new();
+
+        if !include_namespace_packages {
+            // When excluding namespace packages, create transitive edges
+            for from_idx in self.graph.node_indices() {
+                let from_module = &self.graph[from_idx];
+
+                if !node_set.contains(&from_idx) {
+                    continue;
+                }
+
+                // Apply filtering for filtered mode
+                if let Some(filter) = filter_set {
+                    if !is_highlighting_mode && !filter.contains(from_module) {
+                        continue;
+                    }
+                }
+
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
+                            let target_module = &self.graph[target_idx];
+
+                            // Apply filtering for filtered mode
+                            if let Some(filter) = filter_set {
+                                if !is_highlighting_mode && !filter.contains(target_module) {
+                                    return;
+                                }
+                            }
+
+                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                        });
+                    } else if node_set.contains(&to_idx) {
+                        // Apply filtering for filtered mode
+                        if let Some(filter) = filter_set {
+                            if !is_highlighting_mode && !filter.contains(to_module) {
+                                continue;
+                            }
+                        }
+
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            // Include all edges between visible nodes
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
+                .filter(|(from, to)| {
+                    if let Some(filter) = filter_set {
+                        if !is_highlighting_mode {
+                            return filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to]);
+                        }
+                    }
+                    true
+                })
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        // Remove duplicates and sort edges
+        edges.sort();
+        edges.dedup();
+
+        let edge_elements: Vec<String> = edges
+            .iter()
+            .map(|(from, to)| cytoscape_edge_json(from, to))
+            .collect();
+
+        // Combine elements
+        let all_elements = node_elements
+            .into_iter()
+            .chain(edge_elements.into_iter())
+            .collect::<Vec<_>>()
+            .join(",\n");
+
+        // Generate HTML
+        generate_cytoscape_html(&all_elements)
+    }
 }
 
 impl Default for DependencyGraph {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Generate a self-contained HTML file with embedded Cytoscape.js visualization
+fn generate_cytoscape_html(elements_json: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dependency Graph - Cytoscape.js</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.33.1/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }}
+
+        #controls {{
+            background: #f5f5f5;
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }}
+
+        button {{
+            padding: 8px 16px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }}
+
+        button:hover {{
+            background: #e9e9e9;
+        }}
+
+        button:active {{
+            background: #d9d9d9;
+        }}
+
+        #info {{
+            font-size: 14px;
+            color: #666;
+            margin-left: auto;
+        }}
+
+        #cy {{
+            flex: 1;
+            background: #ffffff;
+        }}
+
+        .legend {{
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            font-size: 13px;
+            z-index: 1000;
+        }}
+
+        .legend-title {{
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }}
+
+        .legend-item {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 6px 0;
+        }}
+
+        .legend-color {{
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: 1px solid #999;
+        }}
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button onclick="fitGraph()">Fit to Screen</button>
+        <button onclick="resetZoom()">Reset Zoom</button>
+        <button onclick="centerGraph()">Center</button>
+        <button onclick="exportPNG()">Export as PNG</button>
+        <div id="info"></div>
+    </div>
+
+    <div id="cy"></div>
+
+    <div class="legend">
+        <div class="legend-title">Legend</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #90caf9; border-radius: 50%;"></div>
+            <span>Module</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #a5d6a7;"></div>
+            <span>Script</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ffcc80; clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);"></div>
+            <span>Namespace Package</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #bbdefb; border: 2px solid #1976d2;"></div>
+            <span>Highlighted</span>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Cytoscape
+        const cy = cytoscape({{
+            container: document.getElementById('cy'),
+
+            elements: [
+{}
+            ],
+
+            style: [
+                {{
+                    selector: 'node',
+                    style: {{
+                        'label': 'data(label)',
+                        'text-valign': 'center',
+                        'text-halign': 'center',
+                        'font-size': '12px',
+                        'background-color': '#90caf9',
+                        'border-width': 1,
+                        'border-color': '#1976d2',
+                        'width': 'label',
+                        'height': 'label',
+                        'padding': '10px',
+                        'shape': 'ellipse',
+                        'text-wrap': 'wrap',
+                        'text-max-width': '150px'
+                    }}
+                }},
+                {{
+                    selector: 'node[type="script"]',
+                    style: {{
+                        'shape': 'rectangle',
+                        'background-color': '#a5d6a7',
+                        'border-color': '#388e3c'
+                    }}
+                }},
+                {{
+                    selector: 'node[type="namespace"]',
+                    style: {{
+                        'shape': 'hexagon',
+                        'background-color': '#ffcc80',
+                        'border-color': '#f57c00',
+                        'border-style': 'dashed'
+                    }}
+                }},
+                {{
+                    selector: 'node[highlighted]',
+                    style: {{
+                        'background-color': '#bbdefb',
+                        'border-width': 2,
+                        'border-color': '#1976d2'
+                    }}
+                }},
+                {{
+                    selector: 'edge',
+                    style: {{
+                        'width': 2,
+                        'line-color': '#999',
+                        'target-arrow-color': '#999',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier',
+                        'arrow-scale': 1.2
+                    }}
+                }}
+            ],
+
+            layout: {{
+                name: 'dagre',
+                rankDir: 'LR',
+                nodeSep: 50,
+                rankSep: 100,
+                padding: 30
+            }}
+        }});
+
+        // Update info on selection
+        cy.on('select', 'node', function(evt) {{
+            const node = evt.target;
+            const info = document.getElementById('info');
+            info.textContent = `Selected: ${{node.data('label')}}`;
+        }});
+
+        cy.on('unselect', 'node', function() {{
+            const info = document.getElementById('info');
+            info.textContent = '';
+        }});
+
+        // Control functions
+        function fitGraph() {{
+            cy.fit(undefined, 50);
+        }}
+
+        function resetZoom() {{
+            cy.zoom(1);
+            cy.center();
+        }}
+
+        function centerGraph() {{
+            cy.center();
+        }}
+
+        function exportPNG() {{
+            const png = cy.png({{ full: true, scale: 2 }});
+            const link = document.createElement('a');
+            link.download = 'dependency-graph.png';
+            link.href = png;
+            link.click();
+        }}
+
+        // Initial fit
+        setTimeout(() => {{
+            cy.fit(undefined, 50);
+        }}, 100);
+    </script>
+</body>
+</html>"#,
+        elements_json
+    )
 }
 
 /// Check if a given Python package directory is a namespace package

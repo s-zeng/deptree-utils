@@ -113,8 +113,8 @@ enum Command {
         #[arg(long, short = 's')]
         source_root: Option<PathBuf>,
 
-        /// Output format: 'dot', 'mermaid', or 'list' (default: dot)
-        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid", "list"])]
+        /// Output format: 'dot', 'mermaid', 'list', or 'cytoscape' (default: dot)
+        #[arg(long, default_value = "dot", value_parser = ["dot", "mermaid", "list", "cytoscape"])]
         format: String,
 
         /// Comma-separated list of modules to find downstream dependencies for
@@ -280,6 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "dot" => python::OutputFormat::Dot,
                 "mermaid" => python::OutputFormat::Mermaid,
                 "list" => python::OutputFormat::List,
+                "cytoscape" => python::OutputFormat::Cytoscape,
                 _ => unreachable!("Invalid format validated by clap"),
             };
 
@@ -365,6 +366,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("{}", graph.to_mermaid_filtered(&filter, include_orphans, include_namespace_packages));
                         }
                     }
+                    python::OutputFormat::Cytoscape => {
+                        if show_all {
+                            println!("{}", graph.to_cytoscape_highlighted(&filter, include_orphans, include_namespace_packages));
+                        } else {
+                            println!("{}", graph.to_cytoscape_filtered(&filter, include_orphans, include_namespace_packages));
+                        }
+                    }
                     python::OutputFormat::List => {
                         if show_all {
                             return Err(
@@ -382,6 +390,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     python::OutputFormat::Mermaid => {
                         println!("{}", graph.to_mermaid(include_orphans, include_namespace_packages));
+                    }
+                    python::OutputFormat::Cytoscape => {
+                        println!("{}", graph.to_cytoscape(include_orphans, include_namespace_packages));
                     }
                     python::OutputFormat::List => {
                         return Err(

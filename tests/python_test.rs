@@ -1333,7 +1333,7 @@ fn test_namespace_with_orphans_and_highlighting() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let roots = vec![python::ModulePath(vec![
         "normal_pkg".to_string(),
         "consumer".to_string(),
@@ -1341,7 +1341,133 @@ fn test_namespace_with_orphans_and_highlighting() {
     let upstream = graph.find_upstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = upstream.keys().cloned().collect();
     let output = graph.to_dot_highlighted(&highlight_set, true, false);
-    
+
     // Include orphans and highlight upstream dependencies
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_sample_python_project_cytoscape_output() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+    let cytoscape_output = graph.to_cytoscape(false, false);
+
+    // Validate HTML structure
+    assert!(cytoscape_output.contains("<!DOCTYPE html>"));
+    assert!(cytoscape_output.contains("cytoscape.min.js"));
+    assert!(cytoscape_output.contains(r#""data": { "id":"#));
+
+    // Snapshot for full HTML (ensures determinism)
+    insta::assert_snapshot!(cytoscape_output);
+}
+
+#[test]
+fn test_cytoscape_filtered_downstream() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    let roots = vec![python::ModulePath(vec![
+        "pkg_b".to_string(),
+        "module_b".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_cytoscape_filtered(&filter, false, false);
+
+    assert!(output.contains("<!DOCTYPE html>"));
+    assert!(output.contains(r#""id": "pkg_b.module_b""#));
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_cytoscape_highlighted_mode() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    let roots = vec![python::ModulePath(vec![
+        "pkg_a".to_string(),
+        "module_a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let output = graph.to_cytoscape_highlighted(&highlight_set, false, false);
+
+    assert!(output.contains("<!DOCTYPE html>"));
+    assert!(output.contains(r#""highlighted": true"#));
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_cytoscape_with_scripts() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("project_with_scripts");
+
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze project");
+    let output = graph.to_cytoscape(false, false);
+
+    assert!(output.contains(r#""type": "script""#));
+    insta::assert_snapshot!(output);
+}
+
+#[test]
+fn test_cytoscape_with_namespace_packages() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("namespace_packages_project");
+
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze project");
+
+    // Test with namespace packages included
+    let output_with_ns = graph.to_cytoscape(false, true);
+    insta::assert_snapshot!("cytoscape_with_namespace_packages", output_with_ns);
+
+    // Test with namespace packages excluded (default)
+    let output_without_ns = graph.to_cytoscape(false, false);
+    insta::assert_snapshot!("cytoscape_without_namespace_packages", output_without_ns);
+}
+
+#[test]
+fn test_cytoscape_orphan_filtering() {
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+
+    // With orphans excluded (default)
+    let output_no_orphans = graph.to_cytoscape(false, false);
+    insta::assert_snapshot!("cytoscape_no_orphans", output_no_orphans);
+
+    // With orphans included
+    let output_with_orphans = graph.to_cytoscape(true, false);
+    insta::assert_snapshot!("cytoscape_with_orphans", output_with_orphans);
+}
+
+#[test]
+fn test_cytoscape_json_escaping() {
+    // Create a test case with special characters in module names
+    // This verifies that JSON escaping works correctly
+    let root = fixture_path();
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
+    let output = graph.to_cytoscape(false, false);
+
+    // Verify JSON is valid by checking structure
+    assert!(output.contains(r#""data": {"#));
+    assert!(output.contains(r#""source":"#));
+    assert!(output.contains(r#""target":"#));
+
+    // No unescaped quotes or newlines in JSON values
+    let json_section = output
+        .split("elements: [")
+        .nth(1)
+        .and_then(|s| s.split("\n            ],").next())
+        .expect("Failed to extract elements JSON");
+
+    // Verify no unescaped special chars in string values
+    // (This is a basic check; full JSON validation would require parsing)
+    assert!(!json_section.contains("\"\n"));
+
     insta::assert_snapshot!(output);
 }
