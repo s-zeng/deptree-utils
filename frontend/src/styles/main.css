@@ -1,0 +1,325 @@
+/* Main styles for deptree-utils frontend */
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+}
+
+#main-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#controls {
+    background: #f5f5f5;
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#content-container {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+#filter-panel {
+    width: 280px;
+    background: #f9f9f9;
+    border-right: 1px solid #ddd;
+    padding: 15px;
+    overflow-y: auto;
+    transition: margin-left 0.3s ease;
+    flex-shrink: 0;
+}
+
+#filter-panel.collapsed {
+    margin-left: -280px;
+}
+
+#cy-container {
+    flex: 1;
+    position: relative;
+    background: #ffffff;
+}
+
+#cy {
+    width: 100%;
+    height: 100%;
+}
+
+button {
+    padding: 8px 16px;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+button:hover {
+    background: #e9e9e9;
+}
+
+button:active {
+    background: #d9d9d9;
+}
+
+button.primary {
+    background: #1976d2;
+    color: white;
+    border-color: #1976d2;
+}
+
+button.primary:hover {
+    background: #1565c0;
+}
+
+#toggle-filters {
+    font-size: 18px;
+    padding: 8px 12px;
+    font-weight: bold;
+}
+
+#info {
+    font-size: 14px;
+    color: #666;
+    margin-left: auto;
+}
+
+.filter-section {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #ddd;
+}
+
+.filter-section:last-child {
+    border-bottom: none;
+}
+
+.filter-section h3,
+.filter-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.filter-section label {
+    display: block;
+    margin: 8px 0;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.filter-section input[type="checkbox"] {
+    margin-right: 6px;
+}
+
+.filter-section input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.filter-section select {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.filter-section small {
+    display: block;
+    margin-top: 4px;
+    color: #666;
+    font-size: 11px;
+}
+
+#distance-slider {
+    width: 100%;
+    margin: 8px 0;
+}
+
+#distance-value {
+    font-weight: bold;
+    color: #1976d2;
+}
+
+.module-chips {
+    min-height: 30px;
+    margin-bottom: 8px;
+}
+
+.module-chip {
+    display: inline-block;
+    background: #1976d2;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    margin: 2px;
+    font-size: 11px;
+}
+
+.module-chip .remove {
+    margin-left: 6px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.module-chip .remove:hover {
+    color: #ffcccc;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 15px;
+}
+
+.filter-actions button {
+    flex: 1;
+}
+
+.context-menu {
+    position: absolute;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 10000;
+    min-width: 150px;
+}
+
+.context-menu-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.context-menu-item:last-child {
+    border-bottom: none;
+}
+
+.context-menu-item:hover {
+    background: #f5f5f5;
+}
+
+/* Layout Settings Styles */
+.layout-setting {
+    margin: 8px 0;
+}
+
+.layout-setting label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: #555;
+}
+
+.layout-setting select,
+.layout-setting input[type="number"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.layout-setting input[type="checkbox"] {
+    margin-left: 0;
+    cursor: pointer;
+}
+
+.advanced-settings-section {
+    margin-top: 12px;
+}
+
+.advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    background: #f0f0f0;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    user-select: none;
+}
+
+.advanced-toggle:hover {
+    background: #e5e5e5;
+}
+
+.toggle-icon {
+    font-size: 10px;
+    width: 12px;
+}
+
+.advanced-settings-content {
+    margin-top: 8px;
+    padding-left: 8px;
+}
+
+/* Legend */
+#legend {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    font-size: 13px;
+    z-index: 1000;
+}
+
+#legend h4 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+}
+
+.legend-shape {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #999;
+}
+
+.legend-shape.module {
+    background: #90caf9;
+    border-radius: 50%;
+}
+
+.legend-shape.script {
+    background: #a5d6a7;
+    border-radius: 2px;
+}
+
+.legend-shape.namespace {
+    background: #ffcc80;
+    border-radius: 2px;
+    border-style: dashed;
+}

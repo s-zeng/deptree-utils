@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dependency Graph - Cytoscape.js</title>
+
+    <!-- CDN libraries (keep as external - not bundled) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.33.1/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+    <!-- CoSE-Bilkent dependencies (must load in order: layout-base → cose-base → cytoscape-cose-bilkent) -->
+    <script src="https://unpkg.com/layout-base/layout-base.js"></script>
+    <script src="https://unpkg.com/cose-base/cose-base.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola@2.5.1/cytoscape-cola.min.js"></script>
+    <script src="https://unpkg.com/elkjs@0.9.0/lib/elk.bundled.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-elk@2.2.0/dist/cytoscape-elk.min.js"></script>
+</head>
+<body>
+    <div id="main-container">
+        <div id="controls">
+            <button id="toggle-filters">☰ Toggle Filters</button>
+            <button id="fit">Fit to Screen</button>
+            <button id="reset-zoom">Reset Zoom</button>
+            <button id="center">Center</button>
+            <button id="export-png">Export as PNG</button>
+            <span id="info"></span>
+        </div>
+        <div id="content-container">
+            <div id="filter-panel">
+                <h3>Filters</h3>
+                <div class="filter-section">
+                    <h4>Display Options</h4>
+                    <label>
+                        <input type="checkbox" id="show-orphans" checked>
+                        Show orphan nodes
+                    </label>
+                    <label>
+                        <input type="checkbox" id="show-namespaces" checked>
+                        Show namespace packages
+                    </label>
+                    <label>
+                        <input type="checkbox" id="highlighted-only">
+                        Show only highlighted nodes
+                    </label>
+                </div>
+
+                <div class="filter-section">
+                    <h4>Distance Filter</h4>
+                    <label>
+                        Max distance: <span id="distance-value">∞</span>
+                        <input type="range" id="distance-slider" min="0" max="10" value="10">
+                    </label>
+                </div>
+
+                <div class="filter-section">
+                    <h4>Upstream Dependencies</h4>
+                    <div id="upstream-modules"></div>
+                    <button id="add-upstream">Add Module</button>
+                </div>
+
+                <div class="filter-section">
+                    <h4>Downstream Dependents</h4>
+                    <div id="downstream-modules"></div>
+                    <button id="add-downstream">Add Module</button>
+                </div>
+
+                <div class="filter-section">
+                    <h4>Exclude Scripts</h4>
+                    <input type="text" id="exclude-patterns" placeholder="*pattern*">
+                    <small>Use wildcards: *prefix, suffix*, *substring*</small>
+                </div>
+
+                <div class="filter-section">
+                    <h4>Layout Algorithm</h4>
+                    <select id="layout-select">
+                        <option value="dagre">Dagre (hierarchical)</option>
+                        <option value="cose">CoSE (force-directed)</option>
+                        <option value="cose-bilkent">CoSE-Bilkent (enhanced)</option>
+                        <option value="cola">Cola (constraints)</option>
+                        <option value="elk">ELK (Eclipse)</option>
+                        <option value="breadthfirst">Breadth-first</option>
+                        <option value="circle">Circle</option>
+                        <option value="grid">Grid</option>
+                        <option value="concentric">Concentric</option>
+                    </select>
+                    <div id="layout-settings"></div>
+                    <button id="apply-layout">Apply Layout</button>
+                </div>
+
+                <div class="filter-actions">
+                    <button id="reset-filters">Reset to Original</button>
+                    <button id="apply-filters" class="primary">Apply Filters</button>
+                </div>
+            </div>
+            <div id="cy-container">
+                <div id="cy"></div>
+                <div id="legend">
+                    <h4>Legend</h4>
+                    <div class="legend-item">
+                        <span class="legend-shape module"></span> Module
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-shape script"></span> Script
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-shape namespace"></span> Namespace
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="context-menu" class="context-menu" style="display: none;">
+        <div class="context-menu-item" data-action="add-upstream">Add to upstream</div>
+        <div class="context-menu-item" data-action="add-downstream">Add to downstream</div>
+        <div class="context-menu-item" data-action="remove">Remove from filters</div>
+    </div>
+
+    <script>
+        // Data placeholder (replaced by Rust CLI at build time)
+        window.__GRAPH_DATA__ = <!--GRAPH_DATA_PLACEHOLDER-->;
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

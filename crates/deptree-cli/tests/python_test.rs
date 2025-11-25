@@ -536,6 +536,9 @@ fn test_full_graph_with_nested_imports() {
 
 fn get_binary_path() -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // In a workspace, target is at the workspace root (two levels up)
+    path.push("..");
+    path.push("..");
     path.push("target");
     path.push("debug");
     path.push("deptree-utils");

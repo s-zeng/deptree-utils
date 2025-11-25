@@ -5,3 +5,4 @@
 scratch/
 
 /.pre-commit-config.yaml
+frontend/node_modules/

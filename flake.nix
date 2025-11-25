@@ -16,13 +16,18 @@
       ];
       perSystem = { config, self', pkgs, lib, system, ... }:
         let
-          cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
+          cargoToml = builtins.fromTOML (builtins.readFile ./crates/deptree-cli/Cargo.toml);
           nonRustDeps = [
             pkgs.libiconv
             pkgs.pkg-config
             pkgs.openssl
             pkgs.pandoc
             pkgs.texlive.combined.scheme-small
+          ];
+          frontendDeps = [
+            pkgs.bun
+            pkgs.wasm-pack
+            pkgs.binaryen
           ];
         in
         {
@@ -60,7 +65,7 @@
               cargo-watch
               cargo-insta
               rust-analyzer
-            ];
+            ] ++ frontendDeps;
           };
 
           # Add your auto-formatters here.
