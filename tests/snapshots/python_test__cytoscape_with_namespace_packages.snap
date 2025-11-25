@@ -11,6 +11,13 @@ expression: output_with_ns
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.33.1/cytoscape.min.js"></script>
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+    <!-- Layout Extensions -->
+    <script src="https://unpkg.com/cose-base@1.0.0/cose-base.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cose-bilkent@4.1.0/cytoscape-cose-bilkent.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/webcola@3.4.0/WebCola/cola.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-cola@2.5.1/cytoscape-cola.min.js"></script>
+    <script src="https://unpkg.com/elkjs@0.9.0/lib/elk.bundled.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cytoscape-elk@2.2.0/dist/cytoscape-elk.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -250,6 +257,70 @@ expression: output_with_ns
             background: #f5f5f5;
         }
 
+        /* Layout Settings Styles */
+        .layout-setting {
+            margin: 8px 0;
+        }
+
+        .layout-setting label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 12px;
+            color: #555;
+        }
+
+        .layout-setting select,
+        .layout-setting input[type="number"] {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+
+        .layout-setting input[type="checkbox"] {
+            margin-left: 0;
+            cursor: pointer;
+        }
+
+        .advanced-settings-section {
+            margin-top: 12px;
+        }
+
+        .advanced-toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            color: #555;
+            user-select: none;
+        }
+
+        .advanced-toggle:hover {
+            background: #e5e5e5;
+        }
+
+        .toggle-icon {
+            font-size: 10px;
+            width: 12px;
+        }
+
+        .advanced-settings-content {
+            margin-top: 8px;
+            padding-left: 8px;
+        }
+
+        #apply-layout-btn {
+            width: 100%;
+            margin-top: 10px;
+        }
+
         .legend {
             position: absolute;
             bottom: 20px;
@@ -332,6 +403,36 @@ expression: output_with_ns
                 </div>
 
                 <div class="filter-section">
+                    <h3>Layout Algorithm</h3>
+                    <label>
+                        <select id="layout-select">
+                            <optgroup label="Built-in Layouts">
+                                <option value="dagre">Dagre (Hierarchical)</option>
+                                <option value="cose">CoSE (Force-directed)</option>
+                                <option value="breadthfirst">Breadthfirst (Tree)</option>
+                                <option value="circle">Circle</option>
+                                <option value="grid">Grid</option>
+                                <option value="concentric">Concentric</option>
+                            </optgroup>
+                            <optgroup label="Extension Layouts">
+                                <option value="cose-bilkent">CoSE-Bilkent (Enhanced)</option>
+                                <option value="cola">Cola (Constraint-based)</option>
+                                <option value="elk">ELK (Advanced)</option>
+                            </optgroup>
+                        </select>
+                    </label>
+                    <small id="layout-description" style="display: block; margin-top: 6px; color: #666;">
+                        Hierarchical directed acyclic graph
+                    </small>
+
+                    <div id="layout-settings-container" style="margin-top: 12px;">
+                        <!-- Settings will be dynamically rendered here -->
+                    </div>
+
+                    <button id="apply-layout-btn" class="primary">Apply Layout</button>
+                </div>
+
+                <div class="filter-section">
                     <button id="reset-filters">Reset to Original</button>
                     <button id="apply-filters" class="primary">Apply Filters</button>
                 </div>
@@ -406,6 +507,363 @@ expression: output_with_ns
                 element: edge
             }));
         }
+
+        // ===== Layout Configurations =====
+
+        const LAYOUT_CONFIGS = {
+            dagre: {
+                name: 'Dagre',
+                description: 'Hierarchical directed acyclic graph',
+                category: 'built-in',
+                settings: {
+                    key: {
+                        rankDir: {
+                            label: 'Direction',
+                            type: 'select',
+                            options: [
+                                { value: 'TB', label: 'Top to Bottom' },
+                                { value: 'LR', label: 'Left to Right' },
+                                { value: 'BT', label: 'Bottom to Top' },
+                                { value: 'RL', label: 'Right to Left' }
+                            ],
+                            default: 'LR'
+                        },
+                        nodeSep: {
+                            label: 'Node Separation',
+                            type: 'number',
+                            min: 10,
+                            max: 200,
+                            default: 50,
+                            step: 10
+                        }
+                    },
+                    advanced: {
+                        rankSep: {
+                            label: 'Rank Separation',
+                            type: 'number',
+                            min: 20,
+                            max: 300,
+                            default: 100,
+                            step: 10
+                        },
+                        padding: {
+                            label: 'Padding',
+                            type: 'number',
+                            min: 0,
+                            max: 100,
+                            default: 30,
+                            step: 5
+                        }
+                    }
+                }
+            },
+            cose: {
+                name: 'CoSE',
+                description: 'Force-directed spring embedder',
+                category: 'built-in',
+                settings: {
+                    key: {
+                        nodeRepulsion: {
+                            label: 'Node Repulsion',
+                            type: 'number',
+                            min: 100,
+                            max: 10000,
+                            default: 400000,
+                            step: 1000
+                        },
+                        idealEdgeLength: {
+                            label: 'Edge Length',
+                            type: 'number',
+                            min: 10,
+                            max: 500,
+                            default: 100,
+                            step: 10
+                        }
+                    },
+                    advanced: {
+                        gravity: {
+                            label: 'Gravity',
+                            type: 'number',
+                            min: 0,
+                            max: 10,
+                            default: 1,
+                            step: 0.1
+                        },
+                        numIter: {
+                            label: 'Iterations',
+                            type: 'number',
+                            min: 100,
+                            max: 5000,
+                            default: 1000,
+                            step: 100
+                        }
+                    }
+                }
+            },
+            breadthfirst: {
+                name: 'Breadthfirst',
+                description: 'Tree layout from roots',
+                category: 'built-in',
+                settings: {
+                    key: {
+                        directed: {
+                            label: 'Use Edge Direction',
+                            type: 'checkbox',
+                            default: true
+                        },
+                        circle: {
+                            label: 'Circular Layout',
+                            type: 'checkbox',
+                            default: false
+                        }
+                    },
+                    advanced: {
+                        spacingFactor: {
+                            label: 'Spacing Factor',
+                            type: 'number',
+                            min: 0.5,
+                            max: 3,
+                            default: 1.75,
+                            step: 0.25
+                        }
+                    }
+                }
+            },
+            circle: {
+                name: 'Circle',
+                description: 'Nodes in a circle',
+                category: 'built-in',
+                settings: {
+                    key: {
+                        radius: {
+                            label: 'Radius (leave empty for auto)',
+                            type: 'number',
+                            min: 50,
+                            max: 1000,
+                            default: null,
+                            step: 50,
+                            nullable: true
+                        }
+                    },
+                    advanced: {
+                        startAngle: {
+                            label: 'Start Angle (radians)',
+                            type: 'number',
+                            min: 0,
+                            max: 6.28,
+                            default: 3.14159,
+                            step: 0.1
+                        },
+                        sweep: {
+                            label: 'Sweep (radians)',
+                            type: 'number',
+                            min: 0.1,
+                            max: 6.28,
+                            default: 6.28318,
+                            step: 0.1
+                        }
+                    }
+                }
+            },
+            grid: {
+                name: 'Grid',
+                description: 'Regular grid arrangement',
+                category: 'built-in',
+                settings: {
+                    key: {
+                        avoidOverlap: {
+                            label: 'Avoid Overlap',
+                            type: 'checkbox',
+                            default: true
+                        }
+                    },
+                    advanced: {
+                        rows: {
+                            label: 'Rows (leave empty for auto)',
+                            type: 'number',
+                            min: 1,
+                            max: 50,
+                            default: null,
+                            step: 1,
+                            nullable: true
+                        },
+                        cols: {
+                            label: 'Columns (leave empty for auto)',
+                            type: 'number',
+                            min: 1,
+                            max: 50,
+                            default: null,
+                            step: 1,
+                            nullable: true
+                        }
+                    }
+                }
+            },
+            concentric: {
+                name: 'Concentric',
+                description: 'Concentric circles by importance',
+                category: 'built-in',
+                settings: {
+                    key: {
+                        minNodeSpacing: {
+                            label: 'Min Node Spacing',
+                            type: 'number',
+                            min: 10,
+                            max: 200,
+                            default: 50,
+                            step: 10
+                        }
+                    },
+                    advanced: {
+                        startAngle: {
+                            label: 'Start Angle (radians)',
+                            type: 'number',
+                            min: 0,
+                            max: 6.28,
+                            default: 3.14159,
+                            step: 0.1
+                        }
+                    }
+                }
+            },
+            'cose-bilkent': {
+                name: 'CoSE-Bilkent',
+                description: 'Enhanced force-directed (better quality)',
+                category: 'extension',
+                settings: {
+                    key: {
+                        nodeRepulsion: {
+                            label: 'Node Repulsion',
+                            type: 'number',
+                            min: 100,
+                            max: 10000,
+                            default: 4500,
+                            step: 100
+                        },
+                        idealEdgeLength: {
+                            label: 'Edge Length',
+                            type: 'number',
+                            min: 10,
+                            max: 500,
+                            default: 100,
+                            step: 10
+                        }
+                    },
+                    advanced: {
+                        quality: {
+                            label: 'Quality',
+                            type: 'select',
+                            options: [
+                                { value: 'default', label: 'Default' },
+                                { value: 'draft', label: 'Draft (faster)' },
+                                { value: 'proof', label: 'Proof (better quality)' }
+                            ],
+                            default: 'default'
+                        },
+                        gravity: {
+                            label: 'Gravity',
+                            type: 'number',
+                            min: 0,
+                            max: 1,
+                            default: 0.25,
+                            step: 0.05
+                        }
+                    }
+                }
+            },
+            cola: {
+                name: 'Cola',
+                description: 'Constraint-based force-directed',
+                category: 'extension',
+                settings: {
+                    key: {
+                        edgeLength: {
+                            label: 'Edge Length',
+                            type: 'number',
+                            min: 10,
+                            max: 500,
+                            default: 100,
+                            step: 10
+                        },
+                        nodeSpacing: {
+                            label: 'Node Spacing',
+                            type: 'number',
+                            min: 5,
+                            max: 100,
+                            default: 20,
+                            step: 5
+                        }
+                    },
+                    advanced: {
+                        convergenceThreshold: {
+                            label: 'Convergence Threshold',
+                            type: 'number',
+                            min: 0.001,
+                            max: 0.1,
+                            default: 0.01,
+                            step: 0.001
+                        },
+                        maxSimulationTime: {
+                            label: 'Max Time (ms)',
+                            type: 'number',
+                            min: 1000,
+                            max: 10000,
+                            default: 4000,
+                            step: 500
+                        }
+                    }
+                }
+            },
+            elk: {
+                name: 'ELK',
+                description: 'Eclipse Layout Kernel (advanced)',
+                category: 'extension',
+                settings: {
+                    key: {
+                        algorithm: {
+                            label: 'Algorithm',
+                            type: 'select',
+                            options: [
+                                { value: 'layered', label: 'Layered (hierarchical)' },
+                                { value: 'force', label: 'Force' },
+                                { value: 'stress', label: 'Stress' },
+                                { value: 'mrtree', label: 'MR Tree' }
+                            ],
+                            default: 'layered'
+                        },
+                        'elk.direction': {
+                            label: 'Direction',
+                            type: 'select',
+                            options: [
+                                { value: 'DOWN', label: 'Top to Bottom' },
+                                { value: 'RIGHT', label: 'Left to Right' },
+                                { value: 'UP', label: 'Bottom to Top' },
+                                { value: 'LEFT', label: 'Right to Left' }
+                            ],
+                            default: 'RIGHT'
+                        }
+                    },
+                    advanced: {
+                        'elk.spacing.nodeNode': {
+                            label: 'Node Spacing',
+                            type: 'number',
+                            min: 10,
+                            max: 200,
+                            default: 80,
+                            step: 10
+                        },
+                        'elk.layered.spacing.nodeNodeBetweenLayers': {
+                            label: 'Layer Spacing',
+                            type: 'number',
+                            min: 10,
+                            max: 200,
+                            default: 100,
+                            step: 10
+                        }
+                    }
+                }
+            }
+        };
 
         // ===== Filter State Class =====
 
@@ -537,8 +995,178 @@ expression: output_with_ns
             }
         }
 
+        // ===== LayoutManager Class =====
+
+        class LayoutManager {
+            constructor() {
+                this.currentLayout = 'dagre';  // Default layout
+                this.settings = {};  // Current settings for each layout
+                this.advancedExpanded = false;
+
+                // Initialize default settings for all layouts
+                for (const [layoutName, config] of Object.entries(LAYOUT_CONFIGS)) {
+                    this.settings[layoutName] = {};
+
+                    // Load key settings defaults
+                    for (const [settingName, settingConfig] of Object.entries(config.settings.key)) {
+                        this.settings[layoutName][settingName] = settingConfig.default;
+                    }
+
+                    // Load advanced settings defaults
+                    for (const [settingName, settingConfig] of Object.entries(config.settings.advanced)) {
+                        this.settings[layoutName][settingName] = settingConfig.default;
+                    }
+                }
+            }
+
+            setLayout(layoutName) {
+                if (LAYOUT_CONFIGS[layoutName]) {
+                    this.currentLayout = layoutName;
+                    this.renderSettingsUI();
+                }
+            }
+
+            setSetting(settingName, value) {
+                this.settings[this.currentLayout][settingName] = value;
+            }
+
+            getLayoutOptions() {
+                const config = LAYOUT_CONFIGS[this.currentLayout];
+                const options = {
+                    name: this.currentLayout,
+                    animate: false,  // No animation for manual apply
+                    animationDuration: 0
+                };
+
+                // Merge current settings into options
+                for (const [key, value] of Object.entries(this.settings[this.currentLayout])) {
+                    // Skip null values (for nullable settings)
+                    if (value !== null) {
+                        options[key] = value;
+                    }
+                }
+
+                return options;
+            }
+
+            getLayoutOptionsWithAnimation() {
+                const options = this.getLayoutOptions();
+                options.animate = true;
+                options.animationDuration = 500;
+                return options;
+            }
+
+            renderSettingsUI() {
+                const config = LAYOUT_CONFIGS[this.currentLayout];
+                const container = document.getElementById('layout-settings-container');
+                container.innerHTML = '';
+
+                // Render key settings
+                for (const [settingName, settingConfig] of Object.entries(config.settings.key)) {
+                    const settingEl = this.createSettingControl(settingName, settingConfig);
+                    container.appendChild(settingEl);
+                }
+
+                // Render advanced settings in expandable section
+                const advancedSection = document.createElement('div');
+                advancedSection.className = 'advanced-settings-section';
+
+                const advancedToggle = document.createElement('div');
+                advancedToggle.className = 'advanced-toggle';
+                advancedToggle.innerHTML = `
+                    <span class="toggle-icon">${this.advancedExpanded ? '▼' : '▶'}</span>
+                    <span>Advanced Settings</span>
+                `;
+                advancedToggle.addEventListener('click', () => {
+                    this.advancedExpanded = !this.advancedExpanded;
+                    advancedContent.style.display = this.advancedExpanded ? 'block' : 'none';
+                    advancedToggle.querySelector('.toggle-icon').textContent = this.advancedExpanded ? '▼' : '▶';
+                });
+
+                const advancedContent = document.createElement('div');
+                advancedContent.className = 'advanced-settings-content';
+                advancedContent.style.display = this.advancedExpanded ? 'block' : 'none';
+
+                for (const [settingName, settingConfig] of Object.entries(config.settings.advanced)) {
+                    const settingEl = this.createSettingControl(settingName, settingConfig);
+                    advancedContent.appendChild(settingEl);
+                }
+
+                advancedSection.appendChild(advancedToggle);
+                advancedSection.appendChild(advancedContent);
+                container.appendChild(advancedSection);
+            }
+
+            createSettingControl(settingName, settingConfig) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'layout-setting';
+
+                const label = document.createElement('label');
+                label.textContent = settingConfig.label;
+                wrapper.appendChild(label);
+
+                let input;
+
+                switch (settingConfig.type) {
+                    case 'select':
+                        input = document.createElement('select');
+                        for (const option of settingConfig.options) {
+                            const optEl = document.createElement('option');
+                            optEl.value = option.value;
+                            optEl.textContent = option.label;
+                            input.appendChild(optEl);
+                        }
+                        input.value = this.settings[this.currentLayout][settingName];
+                        input.addEventListener('change', (e) => {
+                            this.setSetting(settingName, e.target.value);
+                        });
+                        break;
+
+                    case 'number':
+                        input = document.createElement('input');
+                        input.type = 'number';
+                        input.min = settingConfig.min;
+                        input.max = settingConfig.max;
+                        input.step = settingConfig.step;
+                        input.value = this.settings[this.currentLayout][settingName] ?? '';
+                        input.placeholder = settingConfig.nullable ? 'Auto' : '';
+                        input.addEventListener('input', (e) => {
+                            const value = e.target.value === '' ? null : parseFloat(e.target.value);
+                            this.setSetting(settingName, value);
+                        });
+                        break;
+
+                    case 'checkbox':
+                        input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.checked = this.settings[this.currentLayout][settingName];
+                        input.addEventListener('change', (e) => {
+                            this.setSetting(settingName, e.target.checked);
+                        });
+                        break;
+                }
+
+                wrapper.appendChild(input);
+                return wrapper;
+            }
+        }
+
         // Create global filter state
         const filterState = new FilterState();
+
+        // Create global layout manager
+        const layoutManager = new LayoutManager();
+
+        // ===== Layout Application Function =====
+
+        function applyCurrentLayout(withAnimation = true) {
+            const options = withAnimation
+                ? layoutManager.getLayoutOptionsWithAnimation()
+                : layoutManager.getLayoutOptions();
+
+            const layout = cy.layout(options);
+            layout.run();
+        }
 
         // ===== Apply Filters Function =====
 
@@ -566,18 +1194,8 @@ expression: output_with_ns
                 }
             });
 
-            // Re-run layout with animation
-            const layout = cy.layout({
-                name: 'dagre',
-                rankDir: 'LR',
-                nodeSep: 50,
-                rankSep: 100,
-                padding: 30,
-                animate: true,
-                animationDuration: 500
-            });
-
-            layout.run();
+            // Re-run layout with current layout manager settings
+            applyCurrentLayout(true);
         }
 
         // ===== Panel Toggle =====
@@ -589,6 +1207,43 @@ expression: output_with_ns
             // Resize graph after animation
             setTimeout(() => cy.resize(), 300);
         });
+
+        // ===== Layout UI Event Handlers =====
+
+        document.getElementById('layout-select').addEventListener('change', (e) => {
+            const selectedLayout = e.target.value;
+            layoutManager.setLayout(selectedLayout);
+
+            // Update description
+            const config = LAYOUT_CONFIGS[selectedLayout];
+            document.getElementById('layout-description').textContent = config.description;
+        });
+
+        document.getElementById('apply-layout-btn').addEventListener('click', () => {
+            applyCurrentLayout();
+        });
+
+        // Initialize layout UI
+        layoutManager.renderSettingsUI();
+        document.getElementById('layout-select').value = 'dagre';
+
+        // Register layout extensions with Cytoscape
+        if (typeof cytoscape !== 'undefined') {
+            // Register cose-bilkent
+            if (typeof cytoscapeCoseBilkent !== 'undefined') {
+                cytoscape.use(cytoscapeCoseBilkent);
+            }
+
+            // Register cola
+            if (typeof cytoscapeCola !== 'undefined') {
+                cytoscape.use(cytoscapeCola);
+            }
+
+            // Register elk
+            if (typeof cytoscapeElk !== 'undefined') {
+                cytoscape.use(cytoscapeElk);
+            }
+        }
 
         // Initialize Cytoscape
         const cy = cytoscape({
@@ -663,13 +1318,7 @@ expression: output_with_ns
                 }
             ],
 
-            layout: {
-                name: 'dagre',
-                rankDir: 'LR',
-                nodeSep: 50,
-                rankSep: 100,
-                padding: 30
-            }
+            layout: layoutManager.getLayoutOptions()
         });
 
         // Update info on selection
@@ -844,14 +1493,10 @@ expression: output_with_ns
             // Show all nodes and edges
             cy.elements().style('display', 'element');
 
-            // Re-layout
-            cy.layout({
-                name: 'dagre',
-                rankDir: 'LR',
-                nodeSep: 50,
-                rankSep: 100,
-                padding: 30
-            }).run();
+            // Reset to original layout
+            layoutManager.setLayout('dagre');
+            document.getElementById('layout-select').value = 'dagre';
+            applyCurrentLayout(true);
         });
 
         // Apply filters button

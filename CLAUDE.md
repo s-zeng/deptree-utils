@@ -133,6 +133,19 @@ deptree-utils python ./my-project --downstream pkg_a --format list
   - Quick visual analysis and filtering without CLI commands
   - Experimenting with different filter combinations in real-time
 
+**Configurable Layouts:**
+- Interactive layout algorithm selection with 9 available layouts:
+  - Built-in: dagre, cose, breadthfirst, circle, grid, concentric
+  - Extensions: cose-bilkent, cola, elk
+- Per-layout configurable settings with key settings and advanced options
+- Manual "Apply Layout" button for user control
+- Layout choice persists during session (resets on page reload)
+- Example workflow:
+  1. Select layout algorithm from dropdown
+  2. Adjust key settings (always visible)
+  3. Expand "Advanced" for fine-tuning
+  4. Click "Apply Layout" to re-render with new settings
+
 All graph formats (DOT, Mermaid, and Cytoscape):
 - Support the `--include-orphans` flag
 - Work with upstream (`python-upstream`) and downstream analysis
