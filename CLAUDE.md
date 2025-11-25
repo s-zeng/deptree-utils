@@ -90,19 +90,48 @@ deptree-utils python ./my-project --downstream pkg_a --format list
 **Cytoscape format:**
 - Outputs a **self-contained HTML file** with interactive dependency graph visualization
 - No external tools required to view (opens directly in any web browser)
-- Interactive features: pan, zoom, node selection, export to PNG
-- Automatic hierarchical layout using Dagre algorithm (left-to-right flow)
-- Visual styling:
+- **Basic interactive features:**
+  - Pan, zoom, node selection
+  - Export to PNG
+  - Automatic hierarchical layout using Dagre algorithm (left-to-right flow)
+- **Interactive filtering panel** (collapsible sidebar):
+  - **Display Options:**
+    - Toggle orphan nodes visibility
+    - Toggle namespace package visibility
+    - Show only highlighted nodes (when using --show-all mode)
+  - **Distance filtering:**
+    - Slider to limit graph by distance from selected modules (0-10+ hops)
+    - Real-time preview of distance limits
+  - **Upstream/Downstream dependencies:**
+    - Interactively select modules to show upstream dependencies
+    - Select modules to show downstream dependencies
+    - Add modules via button prompt or right-click context menu
+    - Remove modules with chip-based UI
+  - **Script exclusion:**
+    - Text input with wildcard pattern support (*prefix, suffix*, *substring*)
+    - Filter out scripts matching patterns
+  - **Reset button:** Restore original CLI-specified view
+  - **Apply button:** Execute filters with animated layout transition
+- **Context menu** (right-click on nodes):
+  - Add node to upstream dependencies
+  - Add node to downstream dependencies
+  - Remove node from upstream/downstream
+- **Visual styling:**
   - **Modules**: Blue ellipses
   - **Scripts**: Green rectangles
   - **Namespace packages**: Orange hexagons (dashed border)
   - **Highlighted nodes**: Light blue with thick border (for --show-all mode)
-- Example: `deptree-utils python ./my-project --format cytoscape > graph.html`
-- Use cases:
+- **Example:**
+  ```bash
+  deptree-utils python ./my-project --format cytoscape > graph.html
+  # Open graph.html in browser to use interactive features
+  ```
+- **Use cases:**
   - Sharing visualizations with non-technical stakeholders
-  - Interactive exploration of large codebases
+  - Interactive exploration of large codebases without regenerating
   - Presentations and documentation (no Graphviz or rendering tools needed)
-  - Quick visual analysis without installing additional tools
+  - Quick visual analysis and filtering without CLI commands
+  - Experimenting with different filter combinations in real-time
 
 All graph formats (DOT, Mermaid, and Cytoscape):
 - Support the `--include-orphans` flag
