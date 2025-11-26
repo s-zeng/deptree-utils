@@ -30,16 +30,130 @@
             pkgs.binaryen
             pkgs.llvmPackages.lld
           ];
+
+          # Build wasm-bindgen-cli at the exact version needed (0.2.105)
+          wasm-bindgen-cli = pkgs.rustPlatform.buildRustPackage rec {
+            pname = "wasm-bindgen-cli";
+            version = "0.2.105";
+
+            src = pkgs.fetchCrate {
+              inherit pname version;
+              sha256 = "sha256-zLPFFgnqAWq5R2KkaTGAYqVQswfBEYm9x3OPjx8DJRY=";
+            };
+
+            cargoHash = "sha256-a2X9bzwnMWNt0fTf30qAiJ4noal/ET1jEtf5fBFj5OU=";
+
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ] ++ lib.optionals pkgs.stdenv.isDarwin [
+              pkgs.darwin.apple_sdk.frameworks.Security
+            ];
+
+            doCheck = false;
+          };
+
+          # Stage 1: Build WASM module
+          wasmBuild = pkgs.rustPlatform.buildRustPackage {
+            pname = "deptree-wasm";
+            version = cargoToml.package.version;
+            src = ./.;
+
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              outputHashes = {
+                "ruff_python_ast-0.0.0" = "sha256-Nws1CDywLEp6ffK4gQQMfcMl3TPIYHVYe1HI1TWCU1Q=";
+              };
+            };
+
+            buildAndTestSubdir = "crates/deptree-wasm";
+
+            nativeBuildInputs = [
+              pkgs.binaryen
+              wasm-bindgen-cli
+              pkgs.llvmPackages.lld
+            ];
+
+            buildPhase = ''
+              cd crates/deptree-wasm
+
+              # Build for wasm32-unknown-unknown target
+              cargo build --lib --release --target wasm32-unknown-unknown
+
+              # Run wasm-bindgen to generate JS bindings
+              mkdir -p $out/pkg
+              wasm-bindgen \
+                --target web \
+                --out-dir $out/pkg \
+                --out-name deptree_wasm \
+                ../../target/wasm32-unknown-unknown/release/deptree_wasm.wasm
+
+              # Optimize with wasm-opt
+              wasm-opt -O3 $out/pkg/deptree_wasm_bg.wasm -o $out/pkg/deptree_wasm_bg.wasm
+
+              # Copy package.json and other metadata
+              cp package.json $out/pkg/ || echo "No package.json to copy"
+            '';
+
+            installPhase = ''
+              echo "WASM build complete"
+            '';
+
+            doCheck = false;
+          };
+
+          # Stage 2: Build frontend with the WASM module
+          frontendBuild = pkgs.stdenv.mkDerivation {
+            pname = "deptree-frontend";
+            version = cargoToml.package.version;
+            src = ./.;
+
+            nativeBuildInputs = [ pkgs.bun ];
+
+            buildPhase = ''
+              # Copy WASM build output to frontend
+              mkdir -p frontend/src/wasm
+              cp -r ${wasmBuild}/pkg/* frontend/src/wasm/
+
+              # Install frontend dependencies and build
+              cd frontend
+              export HOME=$TMPDIR
+              bun install --frozen-lockfile
+              bun run build
+            '';
+
+            installPhase = ''
+              mkdir -p $out
+              cp dist/index.html $out/cytoscape.html
+            '';
+          };
+
         in
         {
-          # Rust package
+          # Expose intermediate build stages as packages
+          packages.wasm = wasmBuild;
+          packages.frontend = frontendBuild;
+
+          # Stage 3: Build CLI with embedded frontend template
           packages.default = pkgs.rustPlatform.buildRustPackage {
             inherit (cargoToml.package) name version;
             src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              outputHashes = {
+                "ruff_python_ast-0.0.0" = "sha256-Nws1CDywLEp6ffK4gQQMfcMl3TPIYHVYe1HI1TWCU1Q=";
+              };
+            };
             nativeBuildInputs = nonRustDeps;
             PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
             LIBRARY_PATH = "${pkgs.libiconv}/lib";
+
+            # Inject the frontend template before building
+            preBuild = ''
+              mkdir -p crates/deptree-cli/templates
+              cp ${frontendBuild}/cytoscape.html crates/deptree-cli/templates/cytoscape.html
+            '';
+
+            # Skip tests in nix build
+            doCheck = false;
           };
 
           # Rust dev environment
