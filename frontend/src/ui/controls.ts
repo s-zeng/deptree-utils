@@ -135,7 +135,7 @@ export function setupUIEventHandlers(
       // Reset UI elements
       if (showOrphansCheckbox) showOrphansCheckbox.checked = true;
       if (showNamespacesCheckbox) showNamespacesCheckbox.checked = true;
-      if (highlightedOnlyCheckbox) highlightedOnlyCheckbox.checked = false;
+      if (highlightedOnlyCheckbox) highlightedOnlyCheckbox.checked = true;
       if (distanceSlider) {
         distanceSlider.value = '10';
         if (distanceValue) distanceValue.textContent = '∞';

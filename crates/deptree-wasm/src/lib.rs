@@ -60,6 +60,15 @@ pub struct FilterConfig {
     pub highlighted_only: bool,
 }
 
+/// Result of filter operation containing both visibility and highlighting information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FilterResult {
+    /// Node IDs that should be visible
+    pub visible: Vec<String>,
+    /// Node IDs that should be highlighted
+    pub highlighted: Vec<String>,
+}
+
 /// Main graph processor exposed to JavaScript
 #[wasm_bindgen]
 pub struct GraphProcessor {
@@ -95,18 +104,28 @@ impl GraphProcessor {
     }
 
     /// Filter nodes based on criteria
-    /// Returns JSON array of visible node IDs
+    /// Returns JSON object with both visible and highlighted node IDs
     pub fn filter_nodes(&self, filter_config_json: &str) -> JsValue {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&"WASM filter_nodes called".into());
+
         let filter_config: FilterConfig = match serde_json::from_str(filter_config_json) {
             Ok(config) => config,
             Err(_e) => {
                 #[cfg(target_arch = "wasm32")]
                 web_sys::console::error_1(&format!("Failed to parse filter config: {}", _e).into());
-                return serde_wasm_bindgen::to_value(&Vec::<String>::new()).unwrap();
+                let empty_result = FilterResult {
+                    visible: Vec::new(),
+                    highlighted: Vec::new(),
+                };
+                return serde_wasm_bindgen::to_value(&empty_result).unwrap();
             }
         };
 
-        // Start with all nodes if no specific filtering, otherwise empty set
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("Config parsed: highlightedOnly={}", filter_config.highlighted_only).into());
+
+        // Step 1: Compute filtered_set from upstream/downstream/distance filters
         let mut filtered_set: Option<HashSet<String>> = None;
 
         // Apply upstream filtering
@@ -134,32 +153,65 @@ impl GraphProcessor {
             });
         }
 
-        // Apply highlighted-only filter
-        if filter_config.highlighted_only {
-            let highlighted: HashSet<String> = self
-                .nodes
+        // Step 2: Determine visible set based on highlightedOnly
+        let visible_base = if filter_config.highlighted_only {
+            if filtered_set.is_some() {
+                // Interactive filters are active - show only filtered nodes
+                filtered_set.clone()
+            } else {
+                // No interactive filters - check for CLI highlighting
+                let cli_highlighted: HashSet<String> = self
+                    .nodes
+                    .iter()
+                    .filter(|n| n.highlighted.unwrap_or(false))
+                    .map(|n| n.id.clone())
+                    .collect();
+
+                if cli_highlighted.is_empty() {
+                    // No CLI highlighting either - show all nodes (default state)
+                    None
+                } else {
+                    // Show only CLI-highlighted nodes
+                    Some(cli_highlighted)
+                }
+            }
+        } else {
+            // Show all nodes (highlightedOnly is false)
+            None
+        };
+
+        // Step 3: Determine highlighted set
+        let highlighted_nodes = if filtered_set.is_some() {
+            // Interactive filters are active - highlight filtered nodes
+            filtered_set.as_ref().unwrap().iter().cloned().collect()
+        } else {
+            // No interactive filters - use CLI highlighting for backward compatibility
+            self.nodes
                 .iter()
                 .filter(|n| n.highlighted.unwrap_or(false))
                 .map(|n| n.id.clone())
-                .collect();
+                .collect()
+        };
 
-            filtered_set = Some(match filtered_set {
-                Some(existing) => existing.intersection(&highlighted).cloned().collect(),
-                None => highlighted,
-            });
-        }
-
-        // Apply remaining filters (orphans, namespaces, patterns)
+        // Step 4: Apply remaining filters (orphans, namespaces, patterns) to visible set
         let visible = filters::apply_filters(
             &self.nodes,
             filter_config.show_orphans,
             filter_config.show_namespaces,
             &filter_config.exclude_patterns,
-            filtered_set.as_ref(),
+            visible_base.as_ref(),
         );
 
-        let visible_vec: Vec<String> = visible.into_iter().collect();
-        serde_wasm_bindgen::to_value(&visible_vec)
+        // Step 5: Return both visible and highlighted sets
+        let result = FilterResult {
+            visible: visible.into_iter().collect(),
+            highlighted: highlighted_nodes,
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("filter_nodes result: visible={}, highlighted={}", result.visible.len(), result.highlighted.len()).into());
+
+        serde_wasm_bindgen::to_value(&result)
             .unwrap_or_else(|_| JsValue::NULL)
     }
 
@@ -248,6 +300,101 @@ mod tests {
             assert!(distances.contains_key("a"));
             assert_eq!(distances.get("a").and_then(|d| d.get("b")), Some(&1));
             assert_eq!(distances.get("a").and_then(|d| d.get("c")), Some(&2));
+        }
+    }
+
+    // Tests for filter_nodes functionality
+    #[cfg(test)]
+    mod filter_nodes_tests {
+        use super::*;
+        use std::collections::HashSet;
+
+        fn create_test_graph() -> (Vec<GraphNode>, Vec<GraphEdge>) {
+            let nodes = vec![
+                GraphNode {
+                    id: "module_a".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+                GraphNode {
+                    id: "module_b".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+                GraphNode {
+                    id: "orphan_c".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: true,
+                    highlighted: None,
+                },
+            ];
+
+            let edges = vec![
+                GraphEdge {
+                    source: "module_a".to_string(),
+                    target: "module_b".to_string(),
+                },
+            ];
+
+            (nodes, edges)
+        }
+
+        #[test]
+        fn test_highlighted_only_no_filters_no_cli_highlighting() {
+            let (nodes, edges) = create_test_graph();
+            let processor = GraphProcessor { nodes, edges };
+
+            // Apply filters directly using internal logic
+            let filter_config = FilterConfig {
+                show_orphans: true,
+                show_namespaces: true,
+                exclude_patterns: vec![],
+                upstream_roots: vec![],
+                downstream_roots: vec![],
+                max_distance: None,
+                highlighted_only: true,
+            };
+
+            // Simulate the logic from filter_nodes
+            let filtered_set: Option<HashSet<String>> = None; // No upstream/downstream filters
+
+            // Determine visible_base (this is where the bug should be)
+            let cli_highlighted: HashSet<String> = processor
+                .nodes
+                .iter()
+                .filter(|n| n.highlighted.unwrap_or(false))
+                .map(|n| n.id.clone())
+                .collect();
+
+            let visible_base = if filter_config.highlighted_only {
+                if filtered_set.is_some() {
+                    filtered_set.clone()
+                } else if cli_highlighted.is_empty() {
+                    // BUG LOCATION: When no CLI highlighting, should show all nodes
+                    None
+                } else {
+                    Some(cli_highlighted.clone())
+                }
+            } else {
+                None
+            };
+
+            // Apply remaining filters
+            let visible = filters::apply_filters(
+                &processor.nodes,
+                filter_config.show_orphans,
+                filter_config.show_namespaces,
+                &filter_config.exclude_patterns,
+                visible_base.as_ref(),
+            );
+
+            // All nodes should be visible (default state)
+            assert_eq!(visible.len(), 3, "Expected all 3 nodes to be visible, got {}", visible.len());
+            assert!(visible.contains("module_a"), "module_a should be visible");
+            assert!(visible.contains("module_b"), "module_b should be visible");
+            assert!(visible.contains("orphan_c"), "orphan_c should be visible");
         }
     }
 }

@@ -1,5 +1,5 @@
 import type cytoscape from 'cytoscape';
-import type { FilterConfig } from './types';
+import type { FilterConfig, FilterResult } from './types';
 import type { GraphProcessor } from './wasm/deptree_wasm';
 
 export class FilterState {
@@ -24,7 +24,7 @@ export class FilterState {
       upstreamRoots: new Set<string>(),
       downstreamRoots: new Set<string>(),
       maxDistance: null,
-      highlightedOnly: false,
+      highlightedOnly: true,
     };
   }
 
@@ -56,6 +56,8 @@ export class FilterState {
    * Apply all filters using WASM
    */
   applyFilters(): void {
+    console.log('Frontend applyFilters called');
+
     // Prepare filter configuration for WASM
     const wasmFilterConfig = {
       showOrphans: this.config.showOrphans,
@@ -67,16 +69,27 @@ export class FilterState {
       highlightedOnly: this.config.highlightedOnly,
     };
 
-    // Call WASM to compute visible nodes
-    const visibleNodes: string[] = this.processor.filter_nodes(JSON.stringify(wasmFilterConfig)) as string[];
+    console.log('Filter config:', wasmFilterConfig);
 
-    // Create a set for O(1) lookup
-    const visibleSet = new Set(visibleNodes);
+    // Call WASM to compute visible and highlighted nodes
+    const result: FilterResult = this.processor.filter_nodes(JSON.stringify(wasmFilterConfig)) as FilterResult;
+
+    console.log('WASM result:', result);
+
+    // Create sets for O(1) lookup
+    const visibleSet = new Set(result.visible);
+    const highlightedSet = new Set(result.highlighted);
 
     // Update Cytoscape node visibility
     this.cy.nodes().forEach((node) => {
       const isVisible = visibleSet.has(node.id());
       node.style('display', isVisible ? 'element' : 'none');
+    });
+
+    // Update Cytoscape node highlighting
+    this.cy.nodes().forEach((node) => {
+      const shouldHighlight = highlightedSet.has(node.id());
+      node.data('highlighted', shouldHighlight);
     });
 
     // Update edge visibility (only show if both source and target are visible)

@@ -8,9 +8,12 @@ default:
 frontend-install:
     cd frontend && bun install
 
-# Build WASM module
+# Build WASM module and copy to frontend
 wasm-build:
     cd crates/deptree-wasm && wasm-pack build --target web
+    mkdir -p frontend/src/wasm
+    cp crates/deptree-wasm/pkg/* frontend/src/wasm/
+    @echo "✓ WASM built and copied to frontend"
 
 # Build frontend (Vite bundle)
 frontend-build-only:
@@ -86,6 +89,7 @@ clean: clean-frontend clean-cli
 clean-frontend:
     rm -rf frontend/dist
     rm -rf frontend/node_modules
+    rm -rf frontend/src/wasm
     rm -f crates/deptree-cli/templates/cytoscape.html
     @echo "✓ Frontend cleaned"
 
@@ -94,11 +98,10 @@ clean-cli:
     cargo clean
     @echo "✓ CLI cleaned"
 
-# Clean WASM artifacts
+# Clean WASM artifacts (pkg directory only, frontend/src/wasm cleaned by clean-frontend)
 clean-wasm:
     rm -rf crates/deptree-wasm/pkg
-    rm -rf frontend/src/wasm
-    @echo "✓ WASM artifacts cleaned"
+    @echo "✓ WASM pkg artifacts cleaned"
 
 # === Development Workflow Commands ===
 

@@ -34,6 +34,11 @@ export interface FilterConfig {
   highlightedOnly: boolean;
 }
 
+export interface FilterResult {
+  visible: string[];
+  highlighted: string[];
+}
+
 export interface DistanceMap {
   [nodeId: string]: {
     [targetId: string]: number;

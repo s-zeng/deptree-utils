@@ -33,6 +33,33 @@ features or structures
 - Use structured error types instead of plain strings where possible
 - Provide actionable information for debugging
 
+## Build System
+
+This project uses `just` (justfile) for build automation. The build pipeline has three main components:
+
+1. **WASM Build** (`just wasm-build`):
+   - Compiles Rust code in `crates/deptree-wasm/` to WebAssembly using `wasm-pack`
+   - **Automatically copies** the built WASM files from `crates/deptree-wasm/pkg/` to `frontend/src/wasm/`
+   - This copy step is critical - the frontend imports from `frontend/src/wasm/`, not from the pkg directory
+
+2. **Frontend Build** (`just frontend-build`):
+   - Runs `wasm-build` first to ensure WASM is up-to-date
+   - Bundles the TypeScript frontend with Vite (includes the WASM from `frontend/src/wasm/`)
+   - Copies the final `frontend/dist/index.html` to `crates/deptree-cli/templates/cytoscape.html`
+
+3. **CLI Build** (`just cli-build` or `just cli-build-release`):
+   - Compiles the Rust CLI binary
+   - Embeds the template from `crates/deptree-cli/templates/cytoscape.html` at compile time
+
+**Important**: Always use `just wasm-build` or `just frontend-build` instead of running `wasm-pack` directly. The justfile ensures WASM files are copied to the correct location for frontend consumption.
+
+**Full build**: `just build` runs the complete pipeline (WASM → Frontend → CLI)
+
+**Cleaning**:
+- `just clean` - removes all build artifacts
+- `just clean-wasm` - removes only `crates/deptree-wasm/pkg/`
+- `just clean-frontend` - removes `frontend/dist/`, `frontend/src/wasm/`, and the CLI template
+
 ## Features
 
 ### Python Dependency Analysis
