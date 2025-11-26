@@ -68,8 +68,7 @@ export class FilterState {
     };
 
     // Call WASM to compute visible nodes
-    const visibleNodesJson = this.processor.filter_nodes(JSON.stringify(wasmFilterConfig));
-    const visibleNodes: string[] = JSON.parse(visibleNodesJson);
+    const visibleNodes: string[] = this.processor.filter_nodes(JSON.stringify(wasmFilterConfig)) as string[];
 
     // Create a set for O(1) lookup
     const visibleSet = new Set(visibleNodes);
