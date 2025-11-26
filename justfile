@@ -20,7 +20,7 @@ frontend-build-only:
     cd frontend && bun run build
 
 # Full frontend build pipeline (WASM → Frontend → Copy template)
-frontend-build: wasm-build frontend-build-only
+frontend-build: frontend-install wasm-build frontend-build-only
     mkdir -p crates/deptree-cli/templates
     cp frontend/dist/index.html crates/deptree-cli/templates/cytoscape.html
     @echo "✓ Frontend built and template copied"
