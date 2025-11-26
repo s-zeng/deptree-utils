@@ -28,6 +28,7 @@
             pkgs.bun
             pkgs.wasm-pack
             pkgs.binaryen
+            pkgs.llvmPackages.lld
           ];
         in
         {

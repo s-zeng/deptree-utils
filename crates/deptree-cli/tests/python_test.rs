@@ -1358,7 +1358,8 @@ fn test_sample_python_project_cytoscape_output() {
     // Validate HTML structure
     assert!(cytoscape_output.contains("<!DOCTYPE html>"));
     assert!(cytoscape_output.contains("cytoscape.min.js"));
-    assert!(cytoscape_output.contains(r#""data": { "id":"#));
+    assert!(cytoscape_output.contains(r#"window.__GRAPH_DATA__"#));
+    assert!(cytoscape_output.contains(r#""nodes""#) && cytoscape_output.contains(r#""edges""#));
 
     // Snapshot for full HTML (ensures determinism)
     insta::assert_snapshot!(cytoscape_output);
@@ -1378,7 +1379,8 @@ fn test_cytoscape_filtered_downstream() {
     let output = graph.to_cytoscape_filtered(&filter, false, false);
 
     assert!(output.contains("<!DOCTYPE html>"));
-    assert!(output.contains(r#""id": "pkg_b.module_b""#));
+    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
+    assert!(output.contains(r#""id":"pkg_b.module_b""#) || output.contains(r#""id": "pkg_b.module_b""#));
     insta::assert_snapshot!(output);
 }
 
@@ -1396,7 +1398,8 @@ fn test_cytoscape_highlighted_mode() {
     let output = graph.to_cytoscape_highlighted(&highlight_set, false, false);
 
     assert!(output.contains("<!DOCTYPE html>"));
-    assert!(output.contains(r#""highlighted": true"#));
+    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
+    assert!(output.contains(r#""highlighted":true"#) || output.contains(r#""highlighted": true"#));
     insta::assert_snapshot!(output);
 }
 
@@ -1411,7 +1414,8 @@ fn test_cytoscape_with_scripts() {
         .expect("Failed to analyze project");
     let output = graph.to_cytoscape(false, false);
 
-    assert!(output.contains(r#""type": "script""#));
+    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
+    assert!(output.contains(r#""type":"script""#) || output.contains(r#""type": "script""#));
     insta::assert_snapshot!(output);
 }
 
@@ -1456,21 +1460,23 @@ fn test_cytoscape_json_escaping() {
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
     let output = graph.to_cytoscape(false, false);
 
-    // Verify JSON is valid by checking structure
-    assert!(output.contains(r#""data": {"#));
-    assert!(output.contains(r#""source":"#));
-    assert!(output.contains(r#""target":"#));
+    // Verify JSON structure is valid
+    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
+    assert!(output.contains(r#""nodes""#));
+    assert!(output.contains(r#""edges""#));
+    assert!(output.contains(r#""source""#) || output.contains(r#""source":"#));
+    assert!(output.contains(r#""target""#) || output.contains(r#""target":"#));
 
-    // No unescaped quotes or newlines in JSON values
-    let json_section = output
-        .split("elements: [")
-        .nth(1)
-        .and_then(|s| s.split("\n            ],").next())
-        .expect("Failed to extract elements JSON");
-
-    // Verify no unescaped special chars in string values
-    // (This is a basic check; full JSON validation would require parsing)
-    assert!(!json_section.contains("\"\n"));
+    // Extract and validate the JSON data
+    if let Some(json_start) = output.find("window.__GRAPH_DATA__ = ") {
+        let json_section = &output[json_start + "window.__GRAPH_DATA__ = ".len()..];
+        if let Some(json_end) = json_section.find(";</script>") {
+            let json_data = &json_section[..json_end];
+            // Verify it's valid JSON by attempting to parse it
+            assert!(serde_json::from_str::<serde_json::Value>(json_data).is_ok(),
+                "JSON data should be valid");
+        }
+    }
 
     insta::assert_snapshot!(output);
 }
