@@ -86,10 +86,32 @@ export class FilterState {
       node.style('display', isVisible ? 'element' : 'none');
     });
 
-    // Update Cytoscape node highlighting
+    // Update Cytoscape node highlighting by directly setting styles
     this.cy.nodes().forEach((node) => {
-      const shouldHighlight = highlightedSet.has(node.id());
-      node.data('highlighted', shouldHighlight);
+      const nodeId = node.id();
+      const shouldHighlight = highlightedSet.has(nodeId);
+      if (shouldHighlight) {
+        console.log(`Setting ${nodeId} as highlighted`);
+        node.data('highlighted', true);
+        // Directly set highlight styles to ensure they're applied
+        node.style({
+          'background-color': '#ffeb3b',
+          'border-width': 4,
+          'border-color': '#f57f17',
+        });
+      } else {
+        console.log(`Removing highlight from ${nodeId}`);
+        node.removeData('highlighted');
+        // Remove the inline styles to fall back to stylesheet defaults
+        node.removeStyle('background-color border-width border-color');
+      }
+    });
+
+    // Verify what happened
+    console.log('After highlighting update:');
+    this.cy.nodes().forEach((node) => {
+      const nodeStyle = node.style('background-color');
+      console.log(`  ${node.id()}: highlighted=${node.data('highlighted')}, bg=${nodeStyle}`);
     });
 
     // Update edge visibility (only show if both source and target are visible)

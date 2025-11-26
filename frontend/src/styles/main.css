@@ -323,3 +323,9 @@ button.primary:hover {
     border-radius: 2px;
     border-style: dashed;
 }
+
+.legend-shape.highlighted {
+    background: #ffeb3b;
+    border-radius: 50%;
+    border: 3px solid #f57f17;
+}

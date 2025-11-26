@@ -82,17 +82,21 @@ function transformToElements(
 
   // Add nodes
   for (const node of graphData.nodes) {
-    elements.push({
-      data: {
-        id: node.id,
-        label: node.id,
-        type: node.type,
-        is_orphan: node.is_orphan,
-        highlighted: node.highlighted || false,
-        // Store distance data for filtering
-        all_distances: distances[node.id] || {},
-      },
-    });
+    const data: Record<string, any> = {
+      id: node.id,
+      label: node.id,
+      type: node.type,
+      is_orphan: node.is_orphan,
+      // Store distance data for filtering
+      all_distances: distances[node.id] || {},
+    };
+
+    // Only set highlighted attribute if true (so CSS selector won't match false values)
+    if (node.highlighted) {
+      data.highlighted = true;
+    }
+
+    elements.push({ data });
   }
 
   // Add edges
@@ -154,13 +158,13 @@ function getCytoscapeStyles(): cytoscape.Stylesheet[] {
       },
     },
 
-    // Highlighted nodes
+    // Highlighted nodes (filtered results)
     {
       selector: 'node[highlighted]',
       style: {
-        'background-color': '#bbdefb',
-        'border-width': 2,
-        'border-color': '#1976d2',
+        'background-color': '#ffeb3b', // Bright yellow
+        'border-width': 4,
+        'border-color': '#f57f17', // Dark amber/orange border
       },
     },
 

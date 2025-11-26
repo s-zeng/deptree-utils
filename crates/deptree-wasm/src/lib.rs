@@ -180,20 +180,7 @@ impl GraphProcessor {
             None
         };
 
-        // Step 3: Determine highlighted set
-        let highlighted_nodes = if filtered_set.is_some() {
-            // Interactive filters are active - highlight filtered nodes
-            filtered_set.as_ref().unwrap().iter().cloned().collect()
-        } else {
-            // No interactive filters - use CLI highlighting for backward compatibility
-            self.nodes
-                .iter()
-                .filter(|n| n.highlighted.unwrap_or(false))
-                .map(|n| n.id.clone())
-                .collect()
-        };
-
-        // Step 4: Apply remaining filters (orphans, namespaces, patterns) to visible set
+        // Step 3: Apply remaining filters (orphans, namespaces, patterns) to visible set
         let visible = filters::apply_filters(
             &self.nodes,
             filter_config.show_orphans,
@@ -202,7 +189,52 @@ impl GraphProcessor {
             visible_base.as_ref(),
         );
 
-        // Step 5: Return both visible and highlighted sets
+        // Step 4: Determine highlighted set based on filter state
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!(
+            "Filter state: filtered_set={}, upstream_roots={:?}, downstream_roots={:?}, show_orphans={}, show_namespaces={}, exclude_patterns={}, visible_count={}",
+            filtered_set.is_some(),
+            filter_config.upstream_roots,
+            filter_config.downstream_roots,
+            filter_config.show_orphans,
+            filter_config.show_namespaces,
+            filter_config.exclude_patterns.len(),
+            visible.len()
+        ).into());
+
+        let highlighted_nodes: Vec<String> = if filtered_set.is_some() {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&"Using upstream/downstream highlighting".into());
+
+            // Upstream/downstream filters active - highlight those filtered nodes (but only if they're visible)
+            let filter_set = filtered_set.as_ref().unwrap();
+            visible
+                .iter()
+                .filter(|node_id| filter_set.contains(*node_id))
+                .cloned()
+                .collect()
+        } else if !filter_config.show_orphans || !filter_config.show_namespaces || !filter_config.exclude_patterns.is_empty() {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&"Using orphan/namespace/pattern highlighting".into());
+
+            // Other interactive filters (orphans/namespaces/patterns) active - highlight visible nodes
+            visible.iter().cloned().collect()
+        } else {
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::log_1(&"Using CLI highlighting".into());
+
+            // No interactive filters - use CLI highlighting for backward compatibility
+            self.nodes
+                .iter()
+                .filter(|n| n.highlighted.unwrap_or(false))
+                .map(|n| n.id.clone())
+                .collect()
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!("Highlighted {} out of {} visible nodes", highlighted_nodes.len(), visible.len()).into());
+
+        // Step 6: Return both visible and highlighted sets
         let result = FilterResult {
             visible: visible.into_iter().collect(),
             highlighted: highlighted_nodes,
@@ -395,6 +427,299 @@ mod tests {
             assert!(visible.contains("module_a"), "module_a should be visible");
             assert!(visible.contains("module_b"), "module_b should be visible");
             assert!(visible.contains("orphan_c"), "orphan_c should be visible");
+        }
+
+        #[test]
+        fn test_orphan_filter_highlights_visible_nodes() {
+            let (nodes, edges) = create_test_graph();
+            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_json = serde_json::to_string(&graph_data).unwrap();
+            let processor = GraphProcessor::new(&graph_json).unwrap();
+
+            let filter_config_json = r#"{
+                "showOrphans": false,
+                "showNamespaces": true,
+                "excludePatterns": [],
+                "upstreamRoots": [],
+                "downstreamRoots": [],
+                "maxDistance": null,
+                "highlightedOnly": false
+            }"#;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let result_js = processor.filter_nodes(filter_config_json);
+                let result: FilterResult = serde_wasm_bindgen::from_value(result_js).unwrap();
+
+                // Should have 2 visible nodes (non-orphans)
+                assert_eq!(result.visible.len(), 2);
+                assert!(result.visible.contains(&"module_a".to_string()));
+                assert!(result.visible.contains(&"module_b".to_string()));
+
+                // All visible nodes should be highlighted
+                assert_eq!(result.highlighted.len(), 2);
+                assert!(result.highlighted.contains(&"module_a".to_string()));
+                assert!(result.highlighted.contains(&"module_b".to_string()));
+            }
+        }
+
+        #[test]
+        fn test_namespace_filter_highlights_visible_nodes() {
+            let nodes = vec![
+                GraphNode {
+                    id: "module_a".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+                GraphNode {
+                    id: "module_b".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+                GraphNode {
+                    id: "namespace_pkg".to_string(),
+                    node_type: "namespace".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+            ];
+            let edges = vec![
+                GraphEdge {
+                    source: "module_a".to_string(),
+                    target: "module_b".to_string(),
+                },
+            ];
+
+            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_json = serde_json::to_string(&graph_data).unwrap();
+            let processor = GraphProcessor::new(&graph_json).unwrap();
+
+            let filter_config_json = r#"{
+                "showOrphans": true,
+                "showNamespaces": false,
+                "excludePatterns": [],
+                "upstreamRoots": [],
+                "downstreamRoots": [],
+                "maxDistance": null,
+                "highlightedOnly": false
+            }"#;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let result_js = processor.filter_nodes(filter_config_json);
+                let result: FilterResult = serde_wasm_bindgen::from_value(result_js).unwrap();
+
+                // Should have 2 visible nodes (non-namespaces)
+                assert_eq!(result.visible.len(), 2);
+                assert!(result.visible.contains(&"module_a".to_string()));
+                assert!(result.visible.contains(&"module_b".to_string()));
+
+                // All visible nodes should be highlighted
+                assert_eq!(result.highlighted.len(), 2);
+                assert!(result.highlighted.contains(&"module_a".to_string()));
+                assert!(result.highlighted.contains(&"module_b".to_string()));
+            }
+        }
+
+        #[test]
+        fn test_script_exclusion_highlights_visible_nodes() {
+            let nodes = vec![
+                GraphNode {
+                    id: "scripts.main".to_string(),
+                    node_type: "script".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+                GraphNode {
+                    id: "scripts.old_runner".to_string(),
+                    node_type: "script".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+            ];
+            let edges = vec![];
+
+            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_json = serde_json::to_string(&graph_data).unwrap();
+            let processor = GraphProcessor::new(&graph_json).unwrap();
+
+            let filter_config_json = r#"{
+                "showOrphans": true,
+                "showNamespaces": true,
+                "excludePatterns": ["*old*"],
+                "upstreamRoots": [],
+                "downstreamRoots": [],
+                "maxDistance": null,
+                "highlightedOnly": false
+            }"#;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let result_js = processor.filter_nodes(filter_config_json);
+                let result: FilterResult = serde_wasm_bindgen::from_value(result_js).unwrap();
+
+                // Should have 1 visible node (scripts.main)
+                assert_eq!(result.visible.len(), 1);
+                assert!(result.visible.contains(&"scripts.main".to_string()));
+
+                // Visible node should be highlighted
+                assert_eq!(result.highlighted.len(), 1);
+                assert!(result.highlighted.contains(&"scripts.main".to_string()));
+            }
+        }
+
+        #[test]
+        fn test_cli_highlighting_preserved_when_no_interactive_filters() {
+            let nodes = vec![
+                GraphNode {
+                    id: "module_a".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: Some(true), // CLI-highlighted
+                },
+                GraphNode {
+                    id: "module_b".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: Some(true), // CLI-highlighted
+                },
+                GraphNode {
+                    id: "module_c".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+            ];
+            let edges = vec![];
+
+            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_json = serde_json::to_string(&graph_data).unwrap();
+            let processor = GraphProcessor::new(&graph_json).unwrap();
+
+            let filter_config_json = r#"{
+                "showOrphans": true,
+                "showNamespaces": true,
+                "excludePatterns": [],
+                "upstreamRoots": [],
+                "downstreamRoots": [],
+                "maxDistance": null,
+                "highlightedOnly": false
+            }"#;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let result_js = processor.filter_nodes(filter_config_json);
+                let result: FilterResult = serde_wasm_bindgen::from_value(result_js).unwrap();
+
+                // All 3 nodes should be visible
+                assert_eq!(result.visible.len(), 3);
+
+                // Only CLI-highlighted nodes should be highlighted
+                assert_eq!(result.highlighted.len(), 2);
+                assert!(result.highlighted.contains(&"module_a".to_string()));
+                assert!(result.highlighted.contains(&"module_b".to_string()));
+                assert!(!result.highlighted.contains(&"module_c".to_string()));
+            }
+        }
+
+        #[test]
+        fn test_combined_filters_highlight_intersection() {
+            let nodes = vec![
+                GraphNode {
+                    id: "module_a".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+                GraphNode {
+                    id: "module_b".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                },
+                GraphNode {
+                    id: "orphan_c".to_string(),
+                    node_type: "module".to_string(),
+                    is_orphan: true,
+                    highlighted: None,
+                },
+            ];
+            let edges = vec![
+                GraphEdge {
+                    source: "module_a".to_string(),
+                    target: "module_b".to_string(),
+                },
+                GraphEdge {
+                    source: "module_a".to_string(),
+                    target: "orphan_c".to_string(),
+                },
+            ];
+
+            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_json = serde_json::to_string(&graph_data).unwrap();
+            let processor = GraphProcessor::new(&graph_json).unwrap();
+
+            let filter_config_json = r#"{
+                "showOrphans": false,
+                "showNamespaces": true,
+                "excludePatterns": [],
+                "upstreamRoots": ["module_b"],
+                "downstreamRoots": [],
+                "maxDistance": null,
+                "highlightedOnly": false
+            }"#;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let result_js = processor.filter_nodes(filter_config_json);
+                let result: FilterResult = serde_wasm_bindgen::from_value(result_js).unwrap();
+
+                // Should show upstream of module_b (module_a, module_b) excluding orphans
+                assert_eq!(result.visible.len(), 2);
+                assert!(result.visible.contains(&"module_a".to_string()));
+                assert!(result.visible.contains(&"module_b".to_string()));
+
+                // All visible nodes should be highlighted
+                assert_eq!(result.highlighted.len(), 2);
+                assert!(result.highlighted.contains(&"module_a".to_string()));
+                assert!(result.highlighted.contains(&"module_b".to_string()));
+            }
+        }
+
+        #[test]
+        fn test_highlighted_only_with_interactive_filters() {
+            let (nodes, edges) = create_test_graph();
+            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_json = serde_json::to_string(&graph_data).unwrap();
+            let processor = GraphProcessor::new(&graph_json).unwrap();
+
+            let filter_config_json = r#"{
+                "showOrphans": false,
+                "showNamespaces": true,
+                "excludePatterns": [],
+                "upstreamRoots": [],
+                "downstreamRoots": [],
+                "maxDistance": null,
+                "highlightedOnly": true
+            }"#;
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                let result_js = processor.filter_nodes(filter_config_json);
+                let result: FilterResult = serde_wasm_bindgen::from_value(result_js).unwrap();
+
+                // Should show only non-orphan nodes
+                assert_eq!(result.visible.len(), 2);
+                assert!(result.visible.contains(&"module_a".to_string()));
+                assert!(result.visible.contains(&"module_b".to_string()));
+
+                // All visible nodes should be highlighted
+                assert_eq!(result.highlighted.len(), 2);
+                assert!(result.highlighted.contains(&"module_a".to_string()));
+                assert!(result.highlighted.contains(&"module_b".to_string()));
+            }
         }
     }
 }
