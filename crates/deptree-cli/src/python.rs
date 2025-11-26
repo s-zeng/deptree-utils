@@ -3,9 +3,9 @@
 //! Parses Python files to extract import statements and builds a dependency graph
 //! of internal module dependencies.
 
+use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::{Bfs, Reversed};
-use petgraph::Direction;
 use ruff_python_parser::parse_module;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -275,7 +275,6 @@ struct GraphData {
     config: GraphConfig,
 }
 
-
 /// The dependency graph of Python modules
 pub struct DependencyGraph {
     graph: DiGraph<ModulePath, ()>,
@@ -359,7 +358,12 @@ impl DependencyGraph {
         // Otherwise, if this is a namespace package, continue traversing
         if self.is_namespace_package(start_module) {
             for neighbor_idx in self.graph.neighbors(start_idx) {
-                self.find_transitive_non_namespace_targets(neighbor_idx, visited, visible_nodes, callback);
+                self.find_transitive_non_namespace_targets(
+                    neighbor_idx,
+                    visited,
+                    visible_nodes,
+                    callback,
+                );
             }
         }
     }
@@ -409,7 +413,10 @@ impl DependencyGraph {
                 output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
             } else if self.is_namespace_package(module) && include_namespace_packages {
                 // Namespace packages get a distinct visual style (hexagon shape)
-                output.push_str(&format!("    \"{}\" [shape=hexagon, style=dashed];\n", module.to_dotted()));
+                output.push_str(&format!(
+                    "    \"{}\" [shape=hexagon, style=dashed];\n",
+                    module.to_dotted()
+                ));
             } else {
                 output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
             }
@@ -438,10 +445,15 @@ impl DependencyGraph {
                     if self.is_namespace_package(to_module) {
                         // This is a namespace package, traverse through it
                         let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
-                            let target_module = &self.graph[target_idx];
-                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                        });
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            &node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            },
+                        );
                     } else if node_set.contains(&to_idx) {
                         // Direct edge to a non-namespace package
                         edges.push((from_module.to_dotted(), to_module.to_dotted()));
@@ -540,7 +552,10 @@ impl DependencyGraph {
                         module.to_dotted()
                     ));
                 } else {
-                    output.push_str(&format!("    \"{}\" [shape=hexagon, style=dashed];\n", module.to_dotted()));
+                    output.push_str(&format!(
+                        "    \"{}\" [shape=hexagon, style=dashed];\n",
+                        module.to_dotted()
+                    ));
                 }
             } else {
                 // Regular modules
@@ -573,10 +588,15 @@ impl DependencyGraph {
 
                     if self.is_namespace_package(to_module) {
                         let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
-                            let target_module = &self.graph[target_idx];
-                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                        });
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            &node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            },
+                        );
                     } else if node_set.contains(&to_idx) {
                         edges.push((from_module.to_dotted(), to_module.to_dotted()));
                     }
@@ -656,10 +676,15 @@ impl DependencyGraph {
 
                     if self.is_namespace_package(to_module) {
                         let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
-                            let target_module = &self.graph[target_idx];
-                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                        });
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            &node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            },
+                        );
                     } else if node_set.contains(&to_idx) {
                         edges.push((from_module.to_dotted(), to_module.to_dotted()));
                     }
@@ -824,10 +849,15 @@ impl DependencyGraph {
 
                     if self.is_namespace_package(to_module) {
                         let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
-                            let target_module = &self.graph[target_idx];
-                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                        });
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            &node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            },
+                        );
                     } else if node_set.contains(&to_idx) {
                         edges.push((from_module.to_dotted(), to_module.to_dotted()));
                     }
@@ -882,7 +912,8 @@ impl DependencyGraph {
         }
 
         // Track which nodes have been assigned the highlighted class to avoid duplicates
-        let mut highlighted_nodes: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut highlighted_nodes: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         // Add edges (which implicitly define nodes)
         for (from_name, to_name) in edges {
@@ -893,9 +924,9 @@ impl DependencyGraph {
             let from_module = self.node_indices.get(&ModulePath(
                 from_name.split('.').map(String::from).collect(),
             ));
-            let to_module = self.node_indices.get(&ModulePath(
-                to_name.split('.').map(String::from).collect(),
-            ));
+            let to_module = self
+                .node_indices
+                .get(&ModulePath(to_name.split('.').map(String::from).collect()));
 
             let from_is_script = from_module
                 .map(|idx| {
@@ -946,7 +977,9 @@ impl DependencyGraph {
             let from_module_path = ModulePath(from_name.split('.').map(String::from).collect());
             let to_module_path = ModulePath(to_name.split('.').map(String::from).collect());
 
-            if highlight_set.contains(&from_module_path) && highlighted_nodes.insert(from_id.clone()) {
+            if highlight_set.contains(&from_module_path)
+                && highlighted_nodes.insert(from_id.clone())
+            {
                 output.push_str(&format!("    class {} highlighted\n", from_id));
             }
             if highlight_set.contains(&to_module_path) && highlighted_nodes.insert(to_id.clone()) {
@@ -962,7 +995,12 @@ impl DependencyGraph {
 
     /// Convert a filtered set of modules to Graphviz DOT format (subgraph).
     /// Only includes nodes and edges where both endpoints are in the filtered set.
-    pub fn to_dot_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool, include_namespace_packages: bool) -> String {
+    pub fn to_dot_filtered(
+        &self,
+        filter: &HashSet<ModulePath>,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> String {
         let mut output = String::from("digraph dependencies {\n");
         output.push_str("    rankdir=LR;\n");
         output.push_str(
@@ -1010,7 +1048,10 @@ impl DependencyGraph {
                 output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
             } else if self.is_namespace_package(module) && include_namespace_packages {
                 // Namespace packages get distinct visual style
-                output.push_str(&format!("    \"{}\" [shape=hexagon, style=dashed];\n", module.to_dotted()));
+                output.push_str(&format!(
+                    "    \"{}\" [shape=hexagon, style=dashed];\n",
+                    module.to_dotted()
+                ));
             } else {
                 output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
             }
@@ -1034,12 +1075,18 @@ impl DependencyGraph {
 
                     if self.is_namespace_package(to_module) {
                         let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
-                            let target_module = &self.graph[target_idx];
-                            if filter.contains(target_module) {
-                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                            }
-                        });
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            &node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
+                                if filter.contains(target_module) {
+                                    edges
+                                        .push((from_module.to_dotted(), target_module.to_dotted()));
+                                }
+                            },
+                        );
                     } else if filter.contains(to_module) && node_set.contains(&to_idx) {
                         edges.push((from_module.to_dotted(), to_module.to_dotted()));
                     }
@@ -1072,7 +1119,12 @@ impl DependencyGraph {
 
     /// Convert a filtered set of modules to Mermaid flowchart format (subgraph).
     /// Only includes nodes and edges where both endpoints are in the filtered set.
-    pub fn to_mermaid_filtered(&self, filter: &HashSet<ModulePath>, include_orphans: bool, include_namespace_packages: bool) -> String {
+    pub fn to_mermaid_filtered(
+        &self,
+        filter: &HashSet<ModulePath>,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> String {
         let mut output = String::from("flowchart TD\n");
 
         // Collect and sort nodes that are in the filter
@@ -1126,12 +1178,18 @@ impl DependencyGraph {
 
                     if self.is_namespace_package(to_module) {
                         let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
-                            let target_module = &self.graph[target_idx];
-                            if filter.contains(target_module) {
-                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                            }
-                        });
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            &node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
+                                if filter.contains(target_module) {
+                                    edges
+                                        .push((from_module.to_dotted(), target_module.to_dotted()));
+                                }
+                            },
+                        );
                     } else if filter.contains(to_module) && node_set.contains(&to_idx) {
                         edges.push((from_module.to_dotted(), to_module.to_dotted()));
                     }
@@ -1245,7 +1303,11 @@ impl DependencyGraph {
     /// Returns a map containing the roots and all modules that transitively depend on them,
     /// along with their distance from the nearest root.
     /// If max_rank is specified, only includes nodes within that distance.
-    pub fn find_downstream(&self, roots: &[ModulePath], max_rank: Option<usize>) -> HashMap<ModulePath, usize> {
+    pub fn find_downstream(
+        &self,
+        roots: &[ModulePath],
+        max_rank: Option<usize>,
+    ) -> HashMap<ModulePath, usize> {
         let mut downstream: HashMap<ModulePath, usize> = HashMap::new();
 
         // Convert ModulePaths to NodeIndices
@@ -1285,7 +1347,8 @@ impl DependencyGraph {
 
                     // Only explore neighbors if we haven't reached max_rank
                     if distance < max {
-                        for neighbor in self.graph.neighbors_directed(node_idx, Direction::Incoming) {
+                        for neighbor in self.graph.neighbors_directed(node_idx, Direction::Incoming)
+                        {
                             if visited.insert(neighbor) {
                                 queue.push_back((neighbor, distance + 1));
                             }
@@ -1309,7 +1372,11 @@ impl DependencyGraph {
     /// Returns a map containing the roots and all modules that they transitively depend on,
     /// along with their distance from the nearest root.
     /// If max_rank is specified, only includes nodes within that distance.
-    pub fn find_upstream(&self, roots: &[ModulePath], max_rank: Option<usize>) -> HashMap<ModulePath, usize> {
+    pub fn find_upstream(
+        &self,
+        roots: &[ModulePath],
+        max_rank: Option<usize>,
+    ) -> HashMap<ModulePath, usize> {
         let mut upstream: HashMap<ModulePath, usize> = HashMap::new();
 
         // Convert ModulePaths to NodeIndices
@@ -1367,7 +1434,6 @@ impl DependencyGraph {
         upstream
     }
 
-
     /// Check if a node is an orphan (has no incoming or outgoing edges)
     fn is_orphan(&self, idx: NodeIndex) -> bool {
         let has_incoming = self
@@ -1375,12 +1441,20 @@ impl DependencyGraph {
             .neighbors_directed(idx, Direction::Incoming)
             .count()
             > 0;
-        let has_outgoing = self.graph.neighbors_directed(idx, Direction::Outgoing).count() > 0;
+        let has_outgoing = self
+            .graph
+            .neighbors_directed(idx, Direction::Outgoing)
+            .count()
+            > 0;
         !has_incoming && !has_outgoing
     }
 
     /// Convert a filtered set of modules to a sorted, newline-separated list of dotted module names
-    pub fn to_list_filtered(&self, filter: &HashSet<ModulePath>, include_namespace_packages: bool) -> String {
+    pub fn to_list_filtered(
+        &self,
+        filter: &HashSet<ModulePath>,
+        include_namespace_packages: bool,
+    ) -> String {
         let mut sorted_modules: Vec<String> = filter
             .iter()
             .filter(|m| include_namespace_packages || !self.is_namespace_package(m))
@@ -1402,7 +1476,11 @@ impl DependencyGraph {
         include_orphans: bool,
         include_namespace_packages: bool,
     ) -> String {
-        self.to_cytoscape_internal(Some((filter, false)), include_orphans, include_namespace_packages)
+        self.to_cytoscape_internal(
+            Some((filter, false)),
+            include_orphans,
+            include_namespace_packages,
+        )
     }
 
     /// Convert the full graph to Cytoscape.js HTML with highlighted nodes
@@ -1412,7 +1490,11 @@ impl DependencyGraph {
         include_orphans: bool,
         include_namespace_packages: bool,
     ) -> String {
-        self.to_cytoscape_internal(Some((highlight_set, true)), include_orphans, include_namespace_packages)
+        self.to_cytoscape_internal(
+            Some((highlight_set, true)),
+            include_orphans,
+            include_namespace_packages,
+        )
     }
 
     /// Internal method that generates Cytoscape.js HTML with optional filtering/highlighting
@@ -1525,18 +1607,23 @@ impl DependencyGraph {
 
                     if self.is_namespace_package(to_module) {
                         let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(to_idx, &mut visited, &node_set, &mut |target_idx| {
-                            let target_module = &self.graph[target_idx];
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            &node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
 
-                            // Apply filtering for filtered mode
-                            if let Some(filter) = filter_set {
-                                if !is_highlighting_mode && !filter.contains(target_module) {
-                                    return;
+                                // Apply filtering for filtered mode
+                                if let Some(filter) = filter_set {
+                                    if !is_highlighting_mode && !filter.contains(target_module) {
+                                        return;
+                                    }
                                 }
-                            }
 
-                            edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                        });
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            },
+                        );
                     } else if node_set.contains(&to_idx) {
                         // Apply filtering for filtered mode
                         if let Some(filter) = filter_set {
@@ -1559,7 +1646,8 @@ impl DependencyGraph {
                 .filter(|(from, to)| {
                     if let Some(filter) = filter_set {
                         if !is_highlighting_mode {
-                            return filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to]);
+                            return filter.contains(&self.graph[*from])
+                                && filter.contains(&self.graph[*to]);
                         }
                     }
                     true
@@ -1583,11 +1671,7 @@ impl DependencyGraph {
 
         // Determine highlighted modules if in highlighting mode
         let highlighted_modules = if is_highlighting_mode {
-            filter_set.map(|set| {
-                set.iter()
-                    .map(|m| m.to_dotted())
-                    .collect::<Vec<String>>()
-            })
+            filter_set.map(|set| set.iter().map(|m| m.to_dotted()).collect::<Vec<String>>())
         } else {
             None
         };
@@ -1604,8 +1688,9 @@ impl DependencyGraph {
         };
 
         // Generate HTML
-        generate_cytoscape_html(&graph_data)
-            .expect("Failed to generate HTML from template. Did you run ./scripts/build-frontend.sh?")
+        generate_cytoscape_html(&graph_data).expect(
+            "Failed to generate HTML from template. Did you run ./scripts/build-frontend.sh?",
+        )
     }
 }
 
@@ -1730,7 +1815,9 @@ pub fn analyze_project(
             ) {
                 // Remove the dummy file part to get the package path
                 let mut package_parts = module_path.0;
-                if !package_parts.is_empty() && package_parts.last() == Some(&"__dummy__".to_string()) {
+                if !package_parts.is_empty()
+                    && package_parts.last() == Some(&"__dummy__".to_string())
+                {
                     package_parts.pop();
                     if !package_parts.is_empty() {
                         let package_module_path = ModulePath(package_parts);

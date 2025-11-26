@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use petgraph::graph::NodeIndex;
 use petgraph::Graph;
+use petgraph::graph::NodeIndex;
 
 use crate::{GraphEdge, GraphNode};
 
@@ -110,8 +110,7 @@ pub fn get_upstream_nodes(
     max_distance: Option<usize>,
 ) -> HashSet<String> {
     let mut result: HashSet<String> = roots.iter().cloned().collect();
-    let mut queue: VecDeque<(String, usize)> =
-        roots.iter().map(|r| (r.clone(), 0)).collect();
+    let mut queue: VecDeque<(String, usize)> = roots.iter().map(|r| (r.clone(), 0)).collect();
     let mut visited: HashSet<String> = roots.iter().cloned().collect();
 
     while let Some((node_id, dist)) = queue.pop_front() {
@@ -141,8 +140,7 @@ pub fn get_downstream_nodes(
     max_distance: Option<usize>,
 ) -> HashSet<String> {
     let mut result: HashSet<String> = roots.iter().cloned().collect();
-    let mut queue: VecDeque<(String, usize)> =
-        roots.iter().map(|r| (r.clone(), 0)).collect();
+    let mut queue: VecDeque<(String, usize)> = roots.iter().map(|r| (r.clone(), 0)).collect();
     let mut visited: HashSet<String> = roots.iter().cloned().collect();
 
     while let Some((node_id, dist)) = queue.pop_front() {
@@ -188,12 +186,10 @@ mod tests {
 
     #[test]
     fn test_is_orphan() {
-        let edges = vec![
-            GraphEdge {
-                source: "a".to_string(),
-                target: "b".to_string(),
-            },
-        ];
+        let edges = vec![GraphEdge {
+            source: "a".to_string(),
+            target: "b".to_string(),
+        }];
 
         assert!(!is_orphan_node("a", &edges)); // has outgoing
         assert!(!is_orphan_node("b", &edges)); // has incoming

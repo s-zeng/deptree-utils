@@ -257,11 +257,14 @@ fn test_script_relative_imports() {
         python::analyze_project(&root, None, &[]).expect("Failed to analyze project with scripts");
 
     // scripts.runner should depend on scripts.utils.helper (via relative import)
-    let downstream = graph.find_downstream(&[python::ModulePath(vec![
-        "scripts".to_string(),
-        "utils".to_string(),
-        "helper".to_string(),
-    ])], None);
+    let downstream = graph.find_downstream(
+        &[python::ModulePath(vec![
+            "scripts".to_string(),
+            "utils".to_string(),
+            "helper".to_string(),
+        ])],
+        None,
+    );
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
     let output = graph.to_list_filtered(&filter, false);
 
@@ -464,8 +467,8 @@ fn test_function_level_imports() {
         .join("fixtures")
         .join("nested_imports_project");
 
-    let graph =
-        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze nested imports project");
 
     // function_imports should depend on both base_module (top-level) and another_module (function-level)
     let roots = vec![python::ModulePath(vec!["function_imports".to_string()])];
@@ -484,8 +487,8 @@ fn test_class_method_imports() {
         .join("fixtures")
         .join("nested_imports_project");
 
-    let graph =
-        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze nested imports project");
 
     // class_imports should depend on base_module (imported in method)
     let roots = vec![python::ModulePath(vec!["class_imports".to_string()])];
@@ -504,8 +507,8 @@ fn test_conditional_imports() {
         .join("fixtures")
         .join("nested_imports_project");
 
-    let graph =
-        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze nested imports project");
 
     // conditional_imports should depend on both base_module (if block) and another_module (try block)
     let roots = vec![python::ModulePath(vec!["conditional_imports".to_string()])];
@@ -524,8 +527,8 @@ fn test_full_graph_with_nested_imports() {
         .join("fixtures")
         .join("nested_imports_project");
 
-    let graph =
-        python::analyze_project(&root, None, &[]).expect("Failed to analyze nested imports project");
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze nested imports project");
     let dot_output = graph.to_dot(false, false);
 
     // Should show all dependencies including those from nested imports
@@ -1036,9 +1039,9 @@ fn test_namespace_package_excluded_by_default_dot() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let dot_output = graph.to_dot(false, false);
-    
+
     // Should not contain namespace package nodes (pep420_namespace, legacy_namespace)
     // but should have edges between actual modules
     insta::assert_snapshot!(dot_output);
@@ -1049,9 +1052,9 @@ fn test_namespace_package_excluded_by_default_mermaid() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let mermaid_output = graph.to_mermaid(false, false);
-    
+
     // Should not contain namespace package nodes in Mermaid format
     insta::assert_snapshot!(mermaid_output);
 }
@@ -1061,9 +1064,9 @@ fn test_namespace_package_with_orphans() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let dot_output = graph.to_dot(true, false);
-    
+
     // Should include orphans but still exclude namespace packages
     insta::assert_snapshot!(dot_output);
 }
@@ -1073,9 +1076,9 @@ fn test_namespace_package_normal_pkg_included() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let dot_output = graph.to_dot(false, false);
-    
+
     // Verify normal_pkg is included (it's not a namespace package)
     assert!(dot_output.contains("normal_pkg"));
 }
@@ -1085,7 +1088,7 @@ fn test_namespace_package_pep420_detected() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     // PEP 420 namespace should be detected but excluded from default output
     let dot_output = graph.to_dot(false, false);
     assert!(!dot_output.contains("\"pep420_namespace.sub_a\""));
@@ -1097,7 +1100,7 @@ fn test_namespace_package_legacy_detected() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     // Legacy namespace should be detected but excluded from default output
     let dot_output = graph.to_dot(false, false);
     assert!(!dot_output.contains("\"legacy_namespace\""));
@@ -1112,9 +1115,9 @@ fn test_namespace_package_included_with_flag_dot() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let dot_output = graph.to_dot(false, true);
-    
+
     // With include_namespace_packages=true, should show namespace packages
     // However, they may not appear as nodes if they have no __init__.py modules
     // This test verifies the flag doesn't break anything
@@ -1126,9 +1129,9 @@ fn test_namespace_package_included_with_flag_mermaid() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let mermaid_output = graph.to_mermaid(false, true);
-    
+
     // Mermaid output with include flag
     insta::assert_snapshot!(mermaid_output);
 }
@@ -1142,9 +1145,9 @@ fn test_namespace_package_edge_traversal_dot() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let dot_output = graph.to_dot(false, false);
-    
+
     // Should have direct edges that skip namespace packages:
     // normal_pkg.consumer -> pep420_namespace.sub_b.module_b
     // pep420_namespace.sub_b.module_b -> pep420_namespace.sub_a.module_a
@@ -1158,9 +1161,9 @@ fn test_namespace_package_edge_traversal_mermaid() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let mermaid_output = graph.to_mermaid(false, false);
-    
+
     // Same edge traversal test for Mermaid format
     insta::assert_snapshot!(mermaid_output);
 }
@@ -1170,9 +1173,9 @@ fn test_namespace_package_transitive_dependencies() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let dot_output = graph.to_dot(false, false);
-    
+
     // Verify transitive edges are created:
     // consumer -> module_b -> module_a -> normal_pkg
     assert!(dot_output.contains("->"));
@@ -1189,7 +1192,7 @@ fn test_downstream_with_namespace_packages() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     // Find downstream of pep420_namespace.sub_a.module_a
     let roots = vec![python::ModulePath(vec![
         "pep420_namespace".to_string(),
@@ -1199,7 +1202,7 @@ fn test_downstream_with_namespace_packages() {
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
     let output = graph.to_dot_filtered(&filter, false, false);
-    
+
     // Should include module_b and consumer (which depend on module_a)
     insta::assert_snapshot!(output);
 }
@@ -1209,7 +1212,7 @@ fn test_downstream_namespace_list_format() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let roots = vec![python::ModulePath(vec![
         "pep420_namespace".to_string(),
         "sub_a".to_string(),
@@ -1218,7 +1221,7 @@ fn test_downstream_namespace_list_format() {
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
     let output = graph.to_list_filtered(&filter, false);
-    
+
     // List format should not include namespace package names
     assert!(!output.contains("pep420_namespace\n"));
     assert!(!output.contains("legacy_namespace\n"));
@@ -1234,7 +1237,7 @@ fn test_upstream_with_namespace_packages() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     // Find upstream of normal_pkg.consumer
     let roots = vec![python::ModulePath(vec![
         "normal_pkg".to_string(),
@@ -1243,7 +1246,7 @@ fn test_upstream_with_namespace_packages() {
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
     let output = graph.to_dot_filtered(&filter, false, false);
-    
+
     // Should include all dependencies (module_b, module_a, etc.)
     insta::assert_snapshot!(output);
 }
@@ -1253,7 +1256,7 @@ fn test_upstream_namespace_list_format() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     let roots = vec![python::ModulePath(vec![
         "normal_pkg".to_string(),
         "consumer".to_string(),
@@ -1261,7 +1264,7 @@ fn test_upstream_namespace_list_format() {
     let upstream = graph.find_upstream(&roots, None);
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
     let output = graph.to_list_filtered(&filter, false);
-    
+
     // List format should not include namespace packages
     insta::assert_snapshot!(output);
 }
@@ -1275,7 +1278,7 @@ fn test_namespace_package_max_rank_filtering() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     // Find downstream with max_rank=1 (direct dependents only)
     let roots = vec![python::ModulePath(vec![
         "pep420_namespace".to_string(),
@@ -1285,7 +1288,7 @@ fn test_namespace_package_max_rank_filtering() {
     let downstream = graph.find_downstream(&roots, Some(1));
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
     let output = graph.to_dot_filtered(&filter, false, false);
-    
+
     // Should only include direct dependents
     insta::assert_snapshot!(output);
 }
@@ -1295,15 +1298,13 @@ fn test_namespace_package_max_rank_distance() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     // Test that distances are calculated correctly when skipping namespace packages
-    let roots = vec![python::ModulePath(vec![
-        "normal_pkg".to_string(),
-    ])];
+    let roots = vec![python::ModulePath(vec!["normal_pkg".to_string()])];
     let upstream = graph.find_upstream(&roots, Some(2));
     let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
     let output = graph.to_list_filtered(&filter, false);
-    
+
     insta::assert_snapshot!(output);
 }
 
@@ -1316,7 +1317,7 @@ fn test_namespace_highlighted_mode() {
     let root = namespace_packages_fixture();
     let graph = python::analyze_project(&root, None, &[])
         .expect("Failed to analyze namespace packages project");
-    
+
     // Find downstream and highlight them
     let roots = vec![python::ModulePath(vec![
         "pep420_namespace".to_string(),
@@ -1326,7 +1327,7 @@ fn test_namespace_highlighted_mode() {
     let downstream = graph.find_downstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
     let output = graph.to_dot_highlighted(&highlight_set, false, false);
-    
+
     // Should highlight downstream modules but not namespace packages
     insta::assert_snapshot!(output);
 }
@@ -1380,7 +1381,9 @@ fn test_cytoscape_filtered_downstream() {
 
     assert!(output.contains("<!DOCTYPE html>"));
     assert!(output.contains(r#"window.__GRAPH_DATA__"#));
-    assert!(output.contains(r#""id":"pkg_b.module_b""#) || output.contains(r#""id": "pkg_b.module_b""#));
+    assert!(
+        output.contains(r#""id":"pkg_b.module_b""#) || output.contains(r#""id": "pkg_b.module_b""#)
+    );
     insta::assert_snapshot!(output);
 }
 
@@ -1410,8 +1413,7 @@ fn test_cytoscape_with_scripts() {
         .join("fixtures")
         .join("project_with_scripts");
 
-    let graph = python::analyze_project(&root, None, &[])
-        .expect("Failed to analyze project");
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
     let output = graph.to_cytoscape(false, false);
 
     assert!(output.contains(r#"window.__GRAPH_DATA__"#));
@@ -1426,8 +1428,7 @@ fn test_cytoscape_with_namespace_packages() {
         .join("fixtures")
         .join("namespace_packages_project");
 
-    let graph = python::analyze_project(&root, None, &[])
-        .expect("Failed to analyze project");
+    let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
 
     // Test with namespace packages included
     let output_with_ns = graph.to_cytoscape(false, true);
@@ -1473,8 +1474,10 @@ fn test_cytoscape_json_escaping() {
         if let Some(json_end) = json_section.find(";</script>") {
             let json_data = &json_section[..json_end];
             // Verify it's valid JSON by attempting to parse it
-            assert!(serde_json::from_str::<serde_json::Value>(json_data).is_ok(),
-                "JSON data should be valid");
+            assert!(
+                serde_json::from_str::<serde_json::Value>(json_data).is_ok(),
+                "JSON data should be valid"
+            );
         }
     }
 

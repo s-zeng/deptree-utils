@@ -1,9 +1,9 @@
 mod filters;
 mod graph;
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
-use serde::{Deserialize, Serialize};
 
 /// Graph node representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,8 +94,7 @@ impl GraphProcessor {
     /// Returns JSON object with distances: { "node1": { "node2": 2, "node3": 1 }, ... }
     pub fn compute_all_distances(&self) -> JsValue {
         let distances = graph::compute_all_distances(&self.nodes, &self.edges);
-        serde_wasm_bindgen::to_value(&distances)
-            .unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&distances).unwrap_or_else(|_| JsValue::NULL)
     }
 
     /// Check if a node is an orphan (no incoming or outgoing edges)
@@ -123,7 +122,13 @@ impl GraphProcessor {
         };
 
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("Config parsed: highlightedOnly={}", filter_config.highlighted_only).into());
+        web_sys::console::log_1(
+            &format!(
+                "Config parsed: highlightedOnly={}",
+                filter_config.highlighted_only
+            )
+            .into(),
+        );
 
         // Step 1: Compute filtered_set from upstream/downstream/distance filters
         let mut filtered_set: Option<HashSet<String>> = None;
@@ -213,7 +218,10 @@ impl GraphProcessor {
                 .filter(|node_id| filter_set.contains(*node_id))
                 .cloned()
                 .collect()
-        } else if !filter_config.show_orphans || !filter_config.show_namespaces || !filter_config.exclude_patterns.is_empty() {
+        } else if !filter_config.show_orphans
+            || !filter_config.show_namespaces
+            || !filter_config.exclude_patterns.is_empty()
+        {
             #[cfg(target_arch = "wasm32")]
             web_sys::console::log_1(&"Using orphan/namespace/pattern highlighting".into());
 
@@ -232,7 +240,14 @@ impl GraphProcessor {
         };
 
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("Highlighted {} out of {} visible nodes", highlighted_nodes.len(), visible.len()).into());
+        web_sys::console::log_1(
+            &format!(
+                "Highlighted {} out of {} visible nodes",
+                highlighted_nodes.len(),
+                visible.len()
+            )
+            .into(),
+        );
 
         // Step 6: Return both visible and highlighted sets
         let result = FilterResult {
@@ -241,10 +256,16 @@ impl GraphProcessor {
         };
 
         #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("filter_nodes result: visible={}, highlighted={}", result.visible.len(), result.highlighted.len()).into());
+        web_sys::console::log_1(
+            &format!(
+                "filter_nodes result: visible={}, highlighted={}",
+                result.visible.len(),
+                result.highlighted.len()
+            )
+            .into(),
+        );
 
-        serde_wasm_bindgen::to_value(&result)
-            .unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&result).unwrap_or_else(|_| JsValue::NULL)
     }
 
     /// Get all upstream dependencies from given roots
@@ -252,8 +273,7 @@ impl GraphProcessor {
     pub fn get_upstream(&self, roots: Vec<String>, max_distance: Option<usize>) -> JsValue {
         let upstream = graph::get_upstream_nodes(&roots, &self.edges, max_distance);
         let result: Vec<String> = upstream.into_iter().collect();
-        serde_wasm_bindgen::to_value(&result)
-            .unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&result).unwrap_or_else(|_| JsValue::NULL)
     }
 
     /// Get all downstream dependents from given roots
@@ -261,8 +281,7 @@ impl GraphProcessor {
     pub fn get_downstream(&self, roots: Vec<String>, max_distance: Option<usize>) -> JsValue {
         let downstream = graph::get_downstream_nodes(&roots, &self.edges, max_distance);
         let result: Vec<String> = downstream.into_iter().collect();
-        serde_wasm_bindgen::to_value(&result)
-            .unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&result).unwrap_or_else(|_| JsValue::NULL)
     }
 }
 
@@ -363,12 +382,10 @@ mod tests {
                 },
             ];
 
-            let edges = vec![
-                GraphEdge {
-                    source: "module_a".to_string(),
-                    target: "module_b".to_string(),
-                },
-            ];
+            let edges = vec![GraphEdge {
+                source: "module_a".to_string(),
+                target: "module_b".to_string(),
+            }];
 
             (nodes, edges)
         }
@@ -423,7 +440,12 @@ mod tests {
             );
 
             // All nodes should be visible (default state)
-            assert_eq!(visible.len(), 3, "Expected all 3 nodes to be visible, got {}", visible.len());
+            assert_eq!(
+                visible.len(),
+                3,
+                "Expected all 3 nodes to be visible, got {}",
+                visible.len()
+            );
             assert!(visible.contains("module_a"), "module_a should be visible");
             assert!(visible.contains("module_b"), "module_b should be visible");
             assert!(visible.contains("orphan_c"), "orphan_c should be visible");
@@ -432,7 +454,11 @@ mod tests {
         #[test]
         fn test_orphan_filter_highlights_visible_nodes() {
             let (nodes, edges) = create_test_graph();
-            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_data = GraphData {
+                nodes,
+                edges,
+                config: None,
+            };
             let graph_json = serde_json::to_string(&graph_data).unwrap();
             let processor = GraphProcessor::new(&graph_json).unwrap();
 
@@ -485,14 +511,16 @@ mod tests {
                     highlighted: None,
                 },
             ];
-            let edges = vec![
-                GraphEdge {
-                    source: "module_a".to_string(),
-                    target: "module_b".to_string(),
-                },
-            ];
+            let edges = vec![GraphEdge {
+                source: "module_a".to_string(),
+                target: "module_b".to_string(),
+            }];
 
-            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_data = GraphData {
+                nodes,
+                edges,
+                config: None,
+            };
             let graph_json = serde_json::to_string(&graph_data).unwrap();
             let processor = GraphProcessor::new(&graph_json).unwrap();
 
@@ -541,7 +569,11 @@ mod tests {
             ];
             let edges = vec![];
 
-            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_data = GraphData {
+                nodes,
+                edges,
+                config: None,
+            };
             let graph_json = serde_json::to_string(&graph_data).unwrap();
             let processor = GraphProcessor::new(&graph_json).unwrap();
 
@@ -594,7 +626,11 @@ mod tests {
             ];
             let edges = vec![];
 
-            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_data = GraphData {
+                nodes,
+                edges,
+                config: None,
+            };
             let graph_json = serde_json::to_string(&graph_data).unwrap();
             let processor = GraphProcessor::new(&graph_json).unwrap();
 
@@ -657,7 +693,11 @@ mod tests {
                 },
             ];
 
-            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_data = GraphData {
+                nodes,
+                edges,
+                config: None,
+            };
             let graph_json = serde_json::to_string(&graph_data).unwrap();
             let processor = GraphProcessor::new(&graph_json).unwrap();
 
@@ -691,7 +731,11 @@ mod tests {
         #[test]
         fn test_highlighted_only_with_interactive_filters() {
             let (nodes, edges) = create_test_graph();
-            let graph_data = GraphData { nodes, edges, config: None };
+            let graph_data = GraphData {
+                nodes,
+                edges,
+                config: None,
+            };
             let graph_json = serde_json::to_string(&graph_data).unwrap();
             let processor = GraphProcessor::new(&graph_json).unwrap();
 

@@ -291,7 +291,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Validate show_all flag usage
             if show_all && !has_downstream && !has_upstream {
                 return Err(
-                    "--show-all requires --downstream or --upstream to be specified".into()
+                    "--show-all requires --downstream or --upstream to be specified".into(),
                 );
             }
 
@@ -319,84 +319,137 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 };
 
                 // Compute the filter set based on which flags are provided
-                let filter: std::collections::HashSet<python::ModulePath> = match (
-                    downstream_paths,
-                    upstream_paths,
-                ) {
-                    (Some(down_paths), Some(up_paths)) => {
-                        // Both downstream and upstream specified: compute intersection
-                        let downstream_modules = graph.find_downstream(&down_paths, max_rank);
-                        let upstream_modules = graph.find_upstream(&up_paths, max_rank);
+                let filter: std::collections::HashSet<python::ModulePath> =
+                    match (downstream_paths, upstream_paths) {
+                        (Some(down_paths), Some(up_paths)) => {
+                            // Both downstream and upstream specified: compute intersection
+                            let downstream_modules = graph.find_downstream(&down_paths, max_rank);
+                            let upstream_modules = graph.find_upstream(&up_paths, max_rank);
 
-                        let downstream_set: std::collections::HashSet<_> =
-                            downstream_modules.keys().cloned().collect();
-                        let upstream_set: std::collections::HashSet<_> =
-                            upstream_modules.keys().cloned().collect();
+                            let downstream_set: std::collections::HashSet<_> =
+                                downstream_modules.keys().cloned().collect();
+                            let upstream_set: std::collections::HashSet<_> =
+                                upstream_modules.keys().cloned().collect();
 
-                        downstream_set
-                            .intersection(&upstream_set)
-                            .cloned()
-                            .collect()
-                    }
-                    (Some(down_paths), None) => {
-                        // Only downstream specified
-                        let downstream_modules = graph.find_downstream(&down_paths, max_rank);
-                        downstream_modules.keys().cloned().collect()
-                    }
-                    (None, Some(up_paths)) => {
-                        // Only upstream specified
-                        let upstream_modules = graph.find_upstream(&up_paths, max_rank);
-                        upstream_modules.keys().cloned().collect()
-                    }
-                    (None, None) => unreachable!("Already checked has_downstream || has_upstream"),
-                };
+                            downstream_set
+                                .intersection(&upstream_set)
+                                .cloned()
+                                .collect()
+                        }
+                        (Some(down_paths), None) => {
+                            // Only downstream specified
+                            let downstream_modules = graph.find_downstream(&down_paths, max_rank);
+                            downstream_modules.keys().cloned().collect()
+                        }
+                        (None, Some(up_paths)) => {
+                            // Only upstream specified
+                            let upstream_modules = graph.find_upstream(&up_paths, max_rank);
+                            upstream_modules.keys().cloned().collect()
+                        }
+                        (None, None) => {
+                            unreachable!("Already checked has_downstream || has_upstream")
+                        }
+                    };
 
                 match output_format {
                     python::OutputFormat::Dot => {
                         if show_all {
-                            println!("{}", graph.to_dot_highlighted(&filter, include_orphans, include_namespace_packages));
+                            println!(
+                                "{}",
+                                graph.to_dot_highlighted(
+                                    &filter,
+                                    include_orphans,
+                                    include_namespace_packages
+                                )
+                            );
                         } else {
-                            println!("{}", graph.to_dot_filtered(&filter, include_orphans, include_namespace_packages));
+                            println!(
+                                "{}",
+                                graph.to_dot_filtered(
+                                    &filter,
+                                    include_orphans,
+                                    include_namespace_packages
+                                )
+                            );
                         }
                     }
                     python::OutputFormat::Mermaid => {
                         if show_all {
-                            println!("{}", graph.to_mermaid_highlighted(&filter, include_orphans, include_namespace_packages));
+                            println!(
+                                "{}",
+                                graph.to_mermaid_highlighted(
+                                    &filter,
+                                    include_orphans,
+                                    include_namespace_packages
+                                )
+                            );
                         } else {
-                            println!("{}", graph.to_mermaid_filtered(&filter, include_orphans, include_namespace_packages));
+                            println!(
+                                "{}",
+                                graph.to_mermaid_filtered(
+                                    &filter,
+                                    include_orphans,
+                                    include_namespace_packages
+                                )
+                            );
                         }
                     }
                     python::OutputFormat::Cytoscape => {
                         if show_all {
-                            println!("{}", graph.to_cytoscape_highlighted(&filter, include_orphans, include_namespace_packages));
+                            println!(
+                                "{}",
+                                graph.to_cytoscape_highlighted(
+                                    &filter,
+                                    include_orphans,
+                                    include_namespace_packages
+                                )
+                            );
                         } else {
-                            println!("{}", graph.to_cytoscape_filtered(&filter, include_orphans, include_namespace_packages));
+                            println!(
+                                "{}",
+                                graph.to_cytoscape_filtered(
+                                    &filter,
+                                    include_orphans,
+                                    include_namespace_packages
+                                )
+                            );
                         }
                     }
                     python::OutputFormat::List => {
                         if show_all {
-                            return Err(
-                                "--show-all cannot be used with --format list".into()
-                            );
+                            return Err("--show-all cannot be used with --format list".into());
                         }
-                        println!("{}", graph.to_list_filtered(&filter, include_namespace_packages));
+                        println!(
+                            "{}",
+                            graph.to_list_filtered(&filter, include_namespace_packages)
+                        );
                     }
                 }
             } else {
                 // Default behavior: output full graph in the specified format
                 match output_format {
                     python::OutputFormat::Dot => {
-                        println!("{}", graph.to_dot(include_orphans, include_namespace_packages));
+                        println!(
+                            "{}",
+                            graph.to_dot(include_orphans, include_namespace_packages)
+                        );
                     }
                     python::OutputFormat::Mermaid => {
-                        println!("{}", graph.to_mermaid(include_orphans, include_namespace_packages));
+                        println!(
+                            "{}",
+                            graph.to_mermaid(include_orphans, include_namespace_packages)
+                        );
                     }
                     python::OutputFormat::Cytoscape => {
-                        println!("{}", graph.to_cytoscape(include_orphans, include_namespace_packages));
+                        println!(
+                            "{}",
+                            graph.to_cytoscape(include_orphans, include_namespace_packages)
+                        );
                     }
                     python::OutputFormat::List => {
                         return Err(
-                            "List format requires --downstream or --upstream to be specified".into()
+                            "List format requires --downstream or --upstream to be specified"
+                                .into(),
                         );
                     }
                 }
