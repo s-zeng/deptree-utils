@@ -83,12 +83,14 @@ export class FilterState {
     // Update Cytoscape node visibility
     this.cy.nodes().forEach((node) => {
       const isVisible = visibleSet.has(node.id());
+      const isParent = typeof node.isParent === 'function' && node.isParent();
 
       // For parent nodes, check if ANY child is visible
-      if (node.isParent()) {
-        const hasVisibleChildren = node.children().some((child) =>
-          visibleSet.has(child.id())
-        );
+      if (isParent) {
+        const children = typeof node.children === 'function' ? node.children() : [];
+        const hasVisibleChildren = typeof (children as any).some === 'function'
+          ? (children as any).some((child: { id: () => string }) => visibleSet.has(child.id()))
+          : false;
         node.style('display', (isVisible || hasVisibleChildren) ? 'element' : 'none');
       } else {
         node.style('display', isVisible ? 'element' : 'none');
@@ -99,9 +101,11 @@ export class FilterState {
     this.cy.nodes().forEach((node) => {
       const nodeId = node.id();
       const shouldHighlight = highlightedSet.has(nodeId);
+
+      // Always set highlighted flag for downstream consumers/tests
+      node.data('highlighted', shouldHighlight);
       if (shouldHighlight) {
         console.log(`Setting ${nodeId} as highlighted`);
-        node.data('highlighted', true);
         // Directly set highlight styles to ensure they're applied
         node.style({
           'background-color': '#ffeb3b',
@@ -110,9 +114,10 @@ export class FilterState {
         });
       } else {
         console.log(`Removing highlight from ${nodeId}`);
-        node.removeData('highlighted');
-        // Remove the inline styles to fall back to stylesheet defaults
-        node.removeStyle('background-color border-width border-color');
+        // Remove the inline styles to fall back to stylesheet defaults when supported
+        if (typeof (node as any).removeStyle === 'function') {
+          node.removeStyle('background-color border-width border-color');
+        }
       }
     });
 
