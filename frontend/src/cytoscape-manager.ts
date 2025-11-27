@@ -4,6 +4,8 @@ import type cytoscape from 'cytoscape';
 // Declare Cytoscape as a global (loaded from CDN)
 declare const cytoscape: typeof import('cytoscape');
 
+export const HIGHLIGHT_SELECTOR = 'node[?highlighted]';
+
 /**
  * Initialize Cytoscape with graph data and styling
  */
@@ -120,7 +122,7 @@ function transformToElements(
 /**
  * Get Cytoscape style definitions
  */
-function getCytoscapeStyles(): cytoscape.Stylesheet[] {
+export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
   return [
     // Default node style
     {
@@ -165,7 +167,8 @@ function getCytoscapeStyles(): cytoscape.Stylesheet[] {
 
     // Highlighted nodes (filtered results)
     {
-      selector: 'node[highlighted]',
+      // Use truthy check so nodes with highlighted=false won't be styled
+      selector: HIGHLIGHT_SELECTOR,
       style: {
         'background-color': '#ffeb3b', // Bright yellow
         'border-width': 4,
