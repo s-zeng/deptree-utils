@@ -83,7 +83,16 @@ export class FilterState {
     // Update Cytoscape node visibility
     this.cy.nodes().forEach((node) => {
       const isVisible = visibleSet.has(node.id());
-      node.style('display', isVisible ? 'element' : 'none');
+
+      // For parent nodes, check if ANY child is visible
+      if (node.isParent()) {
+        const hasVisibleChildren = node.children().some((child) =>
+          visibleSet.has(child.id())
+        );
+        node.style('display', (isVisible || hasVisibleChildren) ? 'element' : 'none');
+      } else {
+        node.style('display', isVisible ? 'element' : 'none');
+      }
     });
 
     // Update Cytoscape node highlighting by directly setting styles

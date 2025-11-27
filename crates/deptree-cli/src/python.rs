@@ -265,6 +265,8 @@ struct GraphNode {
     is_orphan: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     highlighted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
 }
 
 /// Graph edge for frontend data model
@@ -474,6 +476,126 @@ impl DependencyGraph {
             node.should_group && node.is_concrete_module
         } else {
             false
+        }
+    }
+
+    /// Generate compound nodes from namespace hierarchy for Cytoscape output
+    /// Returns (leaf_parent_map, pure_parent_nodes)
+    /// - leaf_parent_map: Maps module IDs to their parent IDs
+    /// - pure_parent_nodes: Pure parent nodes (namespace groups that are not concrete modules)
+    fn generate_compound_nodes(
+        &self,
+        hierarchy: &NamespaceHierarchy,
+        visible_indices: &HashSet<NodeIndex>,
+        include_namespace_packages: bool,
+    ) -> (HashMap<String, String>, Vec<GraphNode>) {
+        let mut leaf_parent_map = HashMap::new();
+        let mut parent_nodes = Vec::new();
+
+        // Process internal modules
+        self.collect_compound_nodes_recursive(
+            &hierarchy.internal_root,
+            None,
+            visible_indices,
+            include_namespace_packages,
+            &mut leaf_parent_map,
+            &mut parent_nodes,
+        );
+
+        // Process scripts
+        self.collect_compound_nodes_recursive(
+            &hierarchy.script_root,
+            None,
+            visible_indices,
+            include_namespace_packages,
+            &mut leaf_parent_map,
+            &mut parent_nodes,
+        );
+
+        (leaf_parent_map, parent_nodes)
+    }
+
+    /// Recursively collect compound node relationships from namespace hierarchy
+    fn collect_compound_nodes_recursive(
+        &self,
+        node: &NamespaceNode,
+        parent_id: Option<String>,
+        visible_indices: &HashSet<NodeIndex>,
+        include_namespace_packages: bool,
+        leaf_parent_map: &mut HashMap<String, String>,
+        parent_nodes: &mut Vec<GraphNode>,
+    ) {
+        // Root node - process children without creating a parent
+        if node.path.is_empty() {
+            for child in node.children.values() {
+                self.collect_compound_nodes_recursive(
+                    child,
+                    None,
+                    visible_indices,
+                    include_namespace_packages,
+                    leaf_parent_map,
+                    parent_nodes,
+                );
+            }
+            return;
+        }
+
+        let current_id = node.path.join(".");
+
+        // If this node should group (2+ children), create a parent node
+        if node.should_group {
+            // Create parent node only if it's NOT a concrete module
+            // (if it's concrete, it will be a leaf node too - hybrid node)
+            if !node.is_concrete_module {
+                // Pure parent node (namespace group only)
+                parent_nodes.push(GraphNode {
+                    id: current_id.clone(),
+                    node_type: "namespace_group".to_string(),
+                    is_orphan: false,
+                    highlighted: None,
+                    parent: parent_id.clone(),
+                });
+            } else {
+                // Hybrid node - concrete module that also has children
+                // Will be created as leaf node later, but still acts as parent
+                // Just record its parent relationship
+                if let Some(pid) = &parent_id {
+                    leaf_parent_map.insert(current_id.clone(), pid.clone());
+                }
+            }
+
+            // Recursively process children with current node as parent
+            for child in node.children.values() {
+                self.collect_compound_nodes_recursive(
+                    child,
+                    Some(current_id.clone()),
+                    visible_indices,
+                    include_namespace_packages,
+                    leaf_parent_map,
+                    parent_nodes,
+                );
+            }
+        } else {
+            // Not a group - just a leaf or intermediate node
+            // If concrete, it will be added as leaf later
+            if node.is_concrete_module {
+                // Record parent relationship
+                if let Some(pid) = parent_id.clone() {
+                    leaf_parent_map.insert(current_id, pid);
+                }
+            }
+
+            // Continue recursively for children (propagate parent)
+            for child in node.children.values() {
+                self.collect_compound_nodes_recursive(
+                    child,
+                    parent_id.clone(),
+                    visible_indices,
+                    include_namespace_packages,
+                    leaf_parent_map,
+                    parent_nodes,
+                );
+            }
         }
     }
 
@@ -2225,10 +2347,22 @@ impl DependencyGraph {
             });
         }
 
+        // Build namespace hierarchy from visible nodes
+        let hierarchy = self.build_namespace_hierarchy(&nodes);
+        let visible_indices: HashSet<NodeIndex> = nodes.iter().copied().collect();
+
+        // Generate compound node relationships
+        let (leaf_parent_map, parent_nodes) =
+            self.generate_compound_nodes(&hierarchy, &visible_indices, include_namespace_packages);
+
         // Build graph nodes
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
         let mut graph_nodes = Vec::new();
 
+        // First, add all pure parent nodes
+        graph_nodes.extend(parent_nodes);
+
+        // Then, add all leaf nodes (concrete modules/scripts)
         for idx in &nodes {
             let module = &self.graph[*idx];
             let module_name = module.to_dotted();
@@ -2247,11 +2381,15 @@ impl DependencyGraph {
                 "module"
             };
 
+            // Get parent from map
+            let parent = leaf_parent_map.get(&module_name).cloned();
+
             graph_nodes.push(GraphNode {
                 id: module_name,
                 node_type: node_type.to_string(),
                 is_orphan,
                 highlighted: if is_highlighted { Some(true) } else { None },
+                parent,
             });
         }
 

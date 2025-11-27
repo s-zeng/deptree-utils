@@ -2,9 +2,10 @@
 
 export interface GraphNode {
   id: string;
-  type: 'module' | 'script' | 'namespace';
+  type: 'module' | 'script' | 'namespace' | 'namespace_group';
   is_orphan: boolean;
   highlighted?: boolean;
+  parent?: string;
 }
 
 export interface GraphEdge {

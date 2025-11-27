@@ -91,6 +91,11 @@ function transformToElements(
       all_distances: distances[node.id] || {},
     };
 
+    // Set parent for compound nodes
+    if (node.parent) {
+      data.parent = node.parent;
+    }
+
     // Only set highlighted attribute if true (so CSS selector won't match false values)
     if (node.highlighted) {
       data.highlighted = true;
@@ -165,6 +170,35 @@ function getCytoscapeStyles(): cytoscape.Stylesheet[] {
         'background-color': '#ffeb3b', // Bright yellow
         'border-width': 4,
         'border-color': '#f57f17', // Dark amber/orange border
+      },
+    },
+
+    // Parent nodes (namespace groups) - must use rectangle shape for compound nodes
+    {
+      selector: 'node:parent',
+      style: {
+        'background-color': '#e3f2fd',
+        'background-opacity': 0.3,
+        'border-width': 2,
+        'border-color': '#1976d2',
+        'border-style': 'dashed',
+        shape: 'rectangle',
+        label: 'data(label)',
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'font-size': '14px',
+        'font-weight': 'bold',
+        padding: '20px',
+      },
+    },
+
+    // Namespace group type (pure parent nodes)
+    {
+      selector: 'node[type="namespace_group"]',
+      style: {
+        'background-color': '#fff3e0',
+        'background-opacity': 0.2,
+        'border-color': '#ff9800',
       },
     },
 

@@ -146,6 +146,18 @@ deptree-utils python ./my-project --downstream pkg_a --format list
   - **Scripts**: Green rectangles
   - **Namespace packages**: Orange hexagons (dashed border)
   - **Highlighted nodes**: Light blue with thick border (for --show-all mode)
+  - **Namespace groups** (compound nodes): Light blue rectangles with dashed border
+    - Groups modules under the same namespace when 2+ children exist
+    - Pure namespace groups (containers only): Light orange tint
+    - Label positioned at top to avoid overlapping children
+- **Namespace Grouping** (Cytoscape compound nodes):
+  - Modules under the same namespace are automatically grouped together
+  - Grouping rule: namespaces with 2+ direct children become visual groups
+  - Example: `foo.bar.a` and `foo.bar.b` are grouped inside `foo.bar`
+  - Compound nodes use rectangular shape (Cytoscape requirement)
+  - Supports nested grouping for deep namespace hierarchies
+  - Best layouts for grouping: dagre (default), elk, cose-bilkent, cola
+  - Filtering preserves groups if any child is visible
 - **Example:**
   ```bash
   deptree-utils python ./my-project --format cytoscape > graph.html

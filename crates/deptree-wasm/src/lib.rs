@@ -10,10 +10,12 @@ use wasm_bindgen::prelude::*;
 pub struct GraphNode {
     pub id: String,
     #[serde(rename = "type")]
-    pub node_type: String, // "module", "script", or "namespace"
+    pub node_type: String, // "module", "script", "namespace", or "namespace_group"
     pub is_orphan: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub highlighted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
 }
 
 /// Graph edge representation
@@ -102,6 +104,16 @@ impl GraphProcessor {
         graph::is_orphan_node(node_id, &self.edges)
     }
 
+    /// Helper method to get the parent ID of a node
+    fn get_parent_id(&self, node_id: &str) -> Option<&str> {
+        for node in &self.nodes {
+            if node.id == node_id {
+                return node.parent.as_deref();
+            }
+        }
+        None
+    }
+
     /// Filter nodes based on criteria
     /// Returns JSON object with both visible and highlighted node IDs
     pub fn filter_nodes(&self, filter_config_json: &str) -> JsValue {
@@ -186,13 +198,24 @@ impl GraphProcessor {
         };
 
         // Step 3: Apply remaining filters (orphans, namespaces, patterns) to visible set
-        let visible = filters::apply_filters(
+        let mut visible = filters::apply_filters(
             &self.nodes,
             filter_config.show_orphans,
             filter_config.show_namespaces,
             &filter_config.exclude_patterns,
             visible_base.as_ref(),
         );
+
+        // Step 3.5: Include parent nodes if any child is visible
+        let mut parent_nodes_to_include = HashSet::new();
+        for node_id in &visible {
+            if let Some(parent_id) = self.get_parent_id(node_id) {
+                parent_nodes_to_include.insert(parent_id.to_string());
+            }
+        }
+        for parent_id in parent_nodes_to_include {
+            visible.insert(parent_id);
+        }
 
         // Step 4: Determine highlighted set based on filter state
         #[cfg(target_arch = "wasm32")]
