@@ -48,7 +48,7 @@ describe('LayoutManager - ELK with Compound Nodes', () => {
       const options = layoutManager.getLayoutOptions();
 
       expect(options.name).toBe('elk');
-      expect(options['elk.hierarchyHandling']).toBe('INCLUDE_CHILDREN');
+      expect(options.elk?.['elk.hierarchyHandling']).toBe('INCLUDE_CHILDREN');
     });
 
     it('should allow changing hierarchyHandling setting', () => {
@@ -56,7 +56,7 @@ describe('LayoutManager - ELK with Compound Nodes', () => {
       layoutManager.updateSetting('elk.hierarchyHandling', 'SEPARATE_CHILDREN');
 
       const options = layoutManager.getLayoutOptions();
-      expect(options['elk.hierarchyHandling']).toBe('SEPARATE_CHILDREN');
+      expect(options.elk?.['elk.hierarchyHandling']).toBe('SEPARATE_CHILDREN');
     });
 
     it('should apply layout with compound nodes without error', () => {
@@ -71,7 +71,9 @@ describe('LayoutManager - ELK with Compound Nodes', () => {
       expect(mockCy.layout).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'elk',
-          'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+          elk: expect.objectContaining({
+            'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+          }),
         })
       );
     });
@@ -83,10 +85,11 @@ describe('LayoutManager - ELK with Compound Nodes', () => {
       const layoutCall = mockCy.layout.mock.calls[0][0];
 
       // Verify all standard ELK options are present
-      expect(layoutCall).toHaveProperty('algorithm');
-      expect(layoutCall['elk.direction']).toBeDefined();
-      expect(layoutCall['elk.spacing.nodeNode']).toBeDefined();
-      expect(layoutCall['elk.hierarchyHandling']).toBeDefined();
+      expect(layoutCall.elk).toBeDefined();
+      expect(layoutCall.elk.algorithm).toBeDefined();
+      expect(layoutCall.elk['elk.direction']).toBeDefined();
+      expect(layoutCall.elk['elk.spacing.nodeNode']).toBeDefined();
+      expect(layoutCall.elk['elk.hierarchyHandling']).toBeDefined();
     });
   });
 
@@ -98,8 +101,8 @@ describe('LayoutManager - ELK with Compound Nodes', () => {
       layoutManager.applyLayout(false);
 
       const options = mockCy.layout.mock.calls[0][0];
-      expect(options.algorithm).toBe('layered');
-      expect(options['elk.hierarchyHandling']).toBe('INCLUDE_CHILDREN');
+      expect(options.elk.algorithm).toBe('layered');
+      expect(options.elk['elk.hierarchyHandling']).toBe('INCLUDE_CHILDREN');
     });
 
     it('should work with other algorithms (force, stress, mrtree)', () => {
@@ -112,8 +115,8 @@ describe('LayoutManager - ELK with Compound Nodes', () => {
         layoutManager.applyLayout(false);
 
         const options = mockCy.layout.mock.calls[mockCy.layout.mock.calls.length - 1][0];
-        expect(options.algorithm).toBe(algorithm);
-        expect(options['elk.hierarchyHandling']).toBe('INCLUDE_CHILDREN');
+        expect(options.elk.algorithm).toBe(algorithm);
+        expect(options.elk['elk.hierarchyHandling']).toBe('INCLUDE_CHILDREN');
       }
     });
   });

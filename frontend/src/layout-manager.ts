@@ -49,6 +49,25 @@ export class LayoutManager {
       return { name: this.currentLayout };
     }
 
+    // ELK uses a nested `elk` options object; keep it separate so Cytoscape-ELK
+    // forwards the hierarchy handling and other options correctly for compound graphs.
+    if (this.currentLayout === 'elk') {
+      const elkOptions: Record<string, any> = {};
+
+      for (const [key, value] of layoutSettings.entries()) {
+        if (value !== null) {
+          elkOptions[key] = value;
+        }
+      }
+
+      return {
+        name: 'elk',
+        animate: false,
+        nodeDimensionsIncludeLabels: true,
+        elk: elkOptions,
+      };
+    }
+
     const options: any = {
       name: this.currentLayout,
       animate: false,
