@@ -379,6 +379,16 @@ export const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
           default: 100,
           step: 10,
         },
+        'elk.hierarchyHandling': {
+          label: 'Hierarchy Handling',
+          type: 'select',
+          options: [
+            { value: 'INCLUDE_CHILDREN', label: 'Include Children (recommended)' },
+            { value: 'SEPARATE_CHILDREN', label: 'Separate Children' },
+            { value: 'INHERIT', label: 'Inherit' },
+          ],
+          default: 'INCLUDE_CHILDREN',
+        },
       },
     },
   },
