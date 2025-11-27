@@ -1,8 +1,14 @@
 ---
-source: tests/python_test.rs
+source: crates/deptree-cli/tests/python_test.rs
 expression: mermaid_output
 ---
 flowchart TD
+    subgraph scripts["scripts"]
+        scripts_blah["scripts.blah"]
+        scripts_runner["scripts.runner"]
+    end
+    foo_bar("foo.bar")
+    scripts_utils_helper["scripts.utils.helper"]
     scripts_blah["scripts.blah"] --> foo_bar("foo.bar")
     scripts_runner["scripts.runner"] --> foo_bar("foo.bar")
     scripts_runner["scripts.runner"] --> scripts_utils_helper["scripts.utils.helper"]

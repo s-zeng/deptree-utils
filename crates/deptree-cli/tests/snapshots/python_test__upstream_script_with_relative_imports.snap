@@ -1,12 +1,15 @@
 ---
-source: tests/python_test.rs
+source: crates/deptree-cli/tests/python_test.rs
 expression: output
 ---
 digraph dependencies {
     rankdir=LR;
     // Note: Scripts (files outside source root) are shown with box shape
+    subgraph cluster_scripts {
+        label = "scripts";
+        "scripts.runner" [shape=box];
+    }
     "foo.bar";
-    "scripts.runner" [shape=box];
     "scripts.utils.helper" [shape=box];
     "scripts.runner" -> "foo.bar";
     "scripts.runner" -> "scripts.utils.helper";

@@ -1,7 +1,8 @@
 ---
-source: tests/python_test.rs
+source: crates/deptree-cli/tests/python_test.rs
 expression: output
 ---
 main
 pkg_a
+pkg_a.module_a
 pkg_b.module_b

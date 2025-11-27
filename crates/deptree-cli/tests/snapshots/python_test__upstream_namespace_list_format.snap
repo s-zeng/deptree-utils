@@ -1,9 +1,8 @@
 ---
-source: tests/python_test.rs
+source: crates/deptree-cli/tests/python_test.rs
 expression: output
 ---
 legacy_namespace.submodule.module
-normal_pkg
 normal_pkg.consumer
 pep420_namespace.sub_a.module_a
 pep420_namespace.sub_b.module_b

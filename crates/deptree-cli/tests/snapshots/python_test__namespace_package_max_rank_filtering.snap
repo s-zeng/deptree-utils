@@ -1,10 +1,13 @@
 ---
-source: tests/python_test.rs
+source: crates/deptree-cli/tests/python_test.rs
 expression: output
 ---
 digraph dependencies {
     rankdir=LR;
     // Note: Scripts (files outside source root) are shown with box shape
+    subgraph cluster_pep420_namespace {
+        label = "pep420_namespace";
+    }
     "pep420_namespace.sub_a.module_a";
     "pep420_namespace.sub_b.module_b";
     "pep420_namespace.sub_b.module_b" -> "pep420_namespace.sub_a.module_a";

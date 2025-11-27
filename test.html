@@ -1,7 +1,3 @@
----
-source: crates/deptree-cli/tests/python_test.rs
-expression: output_with_ns
----
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -158,7 +154,8 @@ ${I.stack}`:B}let h=0;const k=new TextEncoder;"encodeInto"in k||(k.encodeInto=fu
 
     <script>
         // Data placeholder (replaced by Rust CLI at build time)
-        window.__GRAPH_DATA__ = {"nodes":[{"id":"legacy_namespace.submodule.module","type":"module","is_orphan":false},{"id":"normal_pkg.consumer","type":"module","is_orphan":false},{"id":"pep420_namespace.sub_a.module_a","type":"module","is_orphan":false},{"id":"pep420_namespace.sub_b.module_b","type":"module","is_orphan":false}],"edges":[{"source":"normal_pkg.consumer","target":"legacy_namespace.submodule.module"},{"source":"normal_pkg.consumer","target":"pep420_namespace.sub_b.module_b"},{"source":"pep420_namespace.sub_a.module_a","target":"normal_pkg.consumer"},{"source":"pep420_namespace.sub_b.module_b","target":"pep420_namespace.sub_a.module_a"}],"config":{"include_orphans":false,"include_namespaces":true}};
+        window.__GRAPH_DATA__ = {"nodes":[{"id":"foo.bar.a","type":"module","is_orphan":false},{"id":"foo.bar.b","type":"module","is_orphan":false},{"id":"foo.baz","type":"module","is_orphan":false},{"id":"main","type":"module","is_orphan":false},{"id":"scripts.runner","type":"module","is_orphan":false}],"edges":[{"source":"foo.bar.b","target":"foo.bar.a"},{"source":"foo.baz","target":"foo.bar.a"},{"source":"main","target":"foo.baz"},{"source":"main","target":"scripts.runner"},{"source":"scripts.runner","target":"foo.baz"}],"config":{"include_orphans":false,"include_namespaces":false}};
     </script>
 </body>
 </html>
+
