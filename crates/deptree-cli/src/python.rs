@@ -258,7 +258,7 @@ fn sanitize_mermaid_id(name: &str) -> String {
 
 /// Graph node for frontend data model
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphNode {
+pub struct GraphNode {
     id: String,
     #[serde(rename = "type")]
     node_type: String,
@@ -271,14 +271,14 @@ struct GraphNode {
 
 /// Graph edge for frontend data model
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphEdge {
+pub struct GraphEdge {
     source: String,
     target: String,
 }
 
 /// Graph configuration for frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphConfig {
+pub struct GraphConfig {
     pub include_orphans: bool,
     pub include_namespaces: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -287,10 +287,17 @@ struct GraphConfig {
 
 /// Complete graph data for frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct GraphData {
+pub struct GraphData {
     nodes: Vec<GraphNode>,
     edges: Vec<GraphEdge>,
     config: GraphConfig,
+}
+
+/// Rendering mode for Cytoscape data generation
+enum CytoscapeMode<'a> {
+    Full,
+    Filtered(&'a HashSet<ModulePath>),
+    Highlighted(&'a HashSet<ModulePath>),
 }
 
 /// Represents a node in the namespace hierarchy tree
@@ -2260,7 +2267,8 @@ impl DependencyGraph {
 
     /// Convert the graph to self-contained Cytoscape.js HTML
     pub fn to_cytoscape(&self, include_orphans: bool, include_namespace_packages: bool) -> String {
-        self.to_cytoscape_internal(None, include_orphans, include_namespace_packages)
+        let graph_data = self.to_cytoscape_graph_data(include_orphans, include_namespace_packages);
+        Self::render_cytoscape_html(&graph_data)
     }
 
     /// Convert a filtered set of modules to Cytoscape.js HTML (subgraph)
@@ -2270,11 +2278,12 @@ impl DependencyGraph {
         include_orphans: bool,
         include_namespace_packages: bool,
     ) -> String {
-        self.to_cytoscape_internal(
-            Some((filter, false)),
+        let graph_data = self.to_cytoscape_graph_data_filtered(
+            filter,
             include_orphans,
             include_namespace_packages,
-        )
+        );
+        Self::render_cytoscape_html(&graph_data)
     }
 
     /// Convert the full graph to Cytoscape.js HTML with highlighted nodes
@@ -2284,30 +2293,72 @@ impl DependencyGraph {
         include_orphans: bool,
         include_namespace_packages: bool,
     ) -> String {
-        self.to_cytoscape_internal(
-            Some((highlight_set, true)),
+        let graph_data = self.to_cytoscape_graph_data_highlighted(
+            highlight_set,
+            include_orphans,
+            include_namespace_packages,
+        );
+        Self::render_cytoscape_html(&graph_data)
+    }
+
+    /// Build Cytoscape graph data without rendering it into HTML
+    pub fn to_cytoscape_graph_data(
+        &self,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> GraphData {
+        self.cytoscape_graph_data_internal(
+            CytoscapeMode::Full,
             include_orphans,
             include_namespace_packages,
         )
     }
 
-    /// Internal method that generates Cytoscape.js HTML with optional filtering/highlighting
+    /// Build Cytoscape graph data for a filtered subgraph
+    pub fn to_cytoscape_graph_data_filtered(
+        &self,
+        filter: &HashSet<ModulePath>,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> GraphData {
+        self.cytoscape_graph_data_internal(
+            CytoscapeMode::Filtered(filter),
+            include_orphans,
+            include_namespace_packages,
+        )
+    }
+
+    /// Build Cytoscape graph data with highlighted nodes
+    pub fn to_cytoscape_graph_data_highlighted(
+        &self,
+        highlight_set: &HashSet<ModulePath>,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> GraphData {
+        self.cytoscape_graph_data_internal(
+            CytoscapeMode::Highlighted(highlight_set),
+            include_orphans,
+            include_namespace_packages,
+        )
+    }
+
+    /// Internal method that builds Cytoscape.js graph data with optional filtering/highlighting
     ///
     /// Parameters:
     /// - filter_mode: None for full graph, Some((set, false)) for filtered, Some((set, true)) for highlighted
     /// - include_orphans: Whether to include orphan nodes
     /// - include_namespace_packages: Whether to include namespace packages
-    fn to_cytoscape_internal(
+    fn cytoscape_graph_data_internal(
         &self,
-        filter_mode: Option<(&HashSet<ModulePath>, bool)>,
+        mode: CytoscapeMode,
         include_orphans: bool,
         include_namespace_packages: bool,
-    ) -> String {
-        // Determine which nodes to include
-        let (filter_set, is_highlighting_mode) = match filter_mode {
-            Some((set, is_highlight)) => (Some(set), is_highlight),
-            None => (None, false),
+    ) -> GraphData {
+        let filter_set = match mode {
+            CytoscapeMode::Full => None,
+            CytoscapeMode::Filtered(set) | CytoscapeMode::Highlighted(set) => Some(set),
         };
+        let is_highlighting_mode = matches!(mode, CytoscapeMode::Highlighted(_));
 
         // Collect and sort nodes
         let mut nodes: Vec<_> = self.graph.node_indices().collect();
@@ -2501,8 +2552,11 @@ impl DependencyGraph {
             },
         };
 
-        // Generate HTML
-        generate_cytoscape_html(&graph_data).expect(
+        graph_data
+    }
+
+    fn render_cytoscape_html(graph_data: &GraphData) -> String {
+        generate_cytoscape_html(graph_data).expect(
             "Failed to generate HTML from template. Did you run ./scripts/build-frontend.sh?",
         )
     }

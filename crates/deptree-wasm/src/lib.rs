@@ -390,18 +390,21 @@ mod tests {
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
                 GraphNode {
                     id: "module_b".to_string(),
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
                 GraphNode {
                     id: "orphan_c".to_string(),
                     node_type: "module".to_string(),
                     is_orphan: true,
                     highlighted: None,
+                    parent: None,
                 },
             ];
 
@@ -520,18 +523,21 @@ mod tests {
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
                 GraphNode {
                     id: "module_b".to_string(),
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
                 GraphNode {
                     id: "namespace_pkg".to_string(),
                     node_type: "namespace".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
             ];
             let edges = vec![GraphEdge {
@@ -582,12 +588,14 @@ mod tests {
                     node_type: "script".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
                 GraphNode {
                     id: "scripts.old_runner".to_string(),
                     node_type: "script".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
             ];
             let edges = vec![];
@@ -633,18 +641,21 @@ mod tests {
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: Some(true), // CLI-highlighted
+                    parent: None,
                 },
                 GraphNode {
                     id: "module_b".to_string(),
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: Some(true), // CLI-highlighted
+                    parent: None,
                 },
                 GraphNode {
                     id: "module_c".to_string(),
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
             ];
             let edges = vec![];
@@ -691,18 +702,21 @@ mod tests {
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
                 GraphNode {
                     id: "module_b".to_string(),
                     node_type: "module".to_string(),
                     is_orphan: false,
                     highlighted: None,
+                    parent: None,
                 },
                 GraphNode {
                     id: "orphan_c".to_string(),
                     node_type: "module".to_string(),
                     is_orphan: true,
                     highlighted: None,
+                    parent: None,
                 },
             ];
             let edges = vec![

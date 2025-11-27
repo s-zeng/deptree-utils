@@ -694,6 +694,7 @@ cargo insta accept
 - When test behavior changes, run `cargo insta review` to inspect differences
 - Accept valid changes with `cargo insta accept` or reject with `cargo insta reject`
 - Never commit `.snap.new` files - these are pending snapshot updates
+- For Cytoscape output, prefer snapshotting `DependencyGraph::to_cytoscape_graph_data*` JSON instead of the rendered HTML; the HTML rendering still uses the same data but should only be smoke-tested.
 
 ## Version control
 

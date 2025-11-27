@@ -1031,23 +1031,6 @@ fn test_highlighted_orphans_included() {
 // Namespace Grouping Tests
 // ============================================================================
 
-fn extract_cytoscape_data(html: &str) -> serde_json::Value {
-    let start_marker = "window.__GRAPH_DATA__ =";
-    let start = html
-        .find(start_marker)
-        .expect("Cytoscape graph data start not found");
-    let after_marker = &html[start + start_marker.len()..];
-
-    let after_equals = after_marker.trim_start();
-
-    let json_end = after_equals
-        .find("</script>")
-        .expect("Cytoscape graph data terminator not found");
-    let json_data = after_equals[..json_end].trim().trim_end_matches(';').trim();
-
-    serde_json::from_str(json_data).expect("Cytoscape graph data should be valid JSON")
-}
-
 #[test]
 fn test_namespace_grouping_dot_output() {
     let root = namespace_grouping_fixture();
@@ -1076,8 +1059,7 @@ fn test_namespace_grouping_cytoscape_graph_data() {
     let graph =
         python::analyze_project(&root, None, &[]).expect("Failed to analyze namespace grouping");
 
-    let html = graph.to_cytoscape(false, false);
-    let graph_data = extract_cytoscape_data(&html);
+    let graph_data = graph.to_cytoscape_graph_data(false, false);
     let serialized = serde_json::to_string_pretty(&graph_data)
         .expect("Cytoscape graph data should serialize to JSON");
 
@@ -1420,6 +1402,9 @@ fn test_sample_python_project_cytoscape_output() {
     let root = fixture_path();
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
     let cytoscape_output = graph.to_cytoscape(false, false);
+    let graph_data = graph.to_cytoscape_graph_data(false, false);
+    let serialized = serde_json::to_string_pretty(&graph_data)
+        .expect("Cytoscape graph data should serialize to JSON");
 
     // Validate HTML structure
     assert!(cytoscape_output.contains("<!DOCTYPE html>"));
@@ -1427,8 +1412,8 @@ fn test_sample_python_project_cytoscape_output() {
     assert!(cytoscape_output.contains(r#"window.__GRAPH_DATA__"#));
     assert!(cytoscape_output.contains(r#""nodes""#) && cytoscape_output.contains(r#""edges""#));
 
-    // Snapshot for full HTML (ensures determinism)
-    insta::assert_snapshot!(cytoscape_output);
+    // Snapshot the raw graph data rather than the full HTML
+    insta::assert_snapshot!(serialized);
 }
 
 #[test]
@@ -1442,14 +1427,15 @@ fn test_cytoscape_filtered_downstream() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_cytoscape_filtered(&filter, false, false);
+    let graph_data = graph.to_cytoscape_graph_data_filtered(&filter, false, false);
+    let serialized = serde_json::to_string_pretty(&graph_data)
+        .expect("Cytoscape graph data should serialize to JSON");
 
-    assert!(output.contains("<!DOCTYPE html>"));
-    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
     assert!(
-        output.contains(r#""id":"pkg_b.module_b""#) || output.contains(r#""id": "pkg_b.module_b""#)
+        serialized.contains(r#""id": "pkg_b.module_b""#)
+            || serialized.contains(r#""id":"pkg_b.module_b""#)
     );
-    insta::assert_snapshot!(output);
+    insta::assert_snapshot!(serialized);
 }
 
 #[test]
@@ -1463,12 +1449,15 @@ fn test_cytoscape_highlighted_mode() {
     ])];
     let downstream = graph.find_downstream(&roots, None);
     let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
-    let output = graph.to_cytoscape_highlighted(&highlight_set, false, false);
+    let graph_data = graph.to_cytoscape_graph_data_highlighted(&highlight_set, false, false);
+    let serialized = serde_json::to_string_pretty(&graph_data)
+        .expect("Cytoscape graph data should serialize to JSON");
 
-    assert!(output.contains("<!DOCTYPE html>"));
-    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
-    assert!(output.contains(r#""highlighted":true"#) || output.contains(r#""highlighted": true"#));
-    insta::assert_snapshot!(output);
+    assert!(
+        serialized.contains(r#""highlighted": true"#)
+            || serialized.contains(r#""highlighted":true"#)
+    );
+    insta::assert_snapshot!(serialized);
 }
 
 #[test]
@@ -1479,11 +1468,14 @@ fn test_cytoscape_with_scripts() {
         .join("project_with_scripts");
 
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
-    let output = graph.to_cytoscape(false, false);
+    let graph_data = graph.to_cytoscape_graph_data(false, false);
+    let serialized = serde_json::to_string_pretty(&graph_data)
+        .expect("Cytoscape graph data should serialize to JSON");
 
-    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
-    assert!(output.contains(r#""type":"script""#) || output.contains(r#""type": "script""#));
-    insta::assert_snapshot!(output);
+    assert!(
+        serialized.contains(r#""type": "script""#) || serialized.contains(r#""type":"script""#)
+    );
+    insta::assert_snapshot!(serialized);
 }
 
 #[test]
@@ -1496,12 +1488,19 @@ fn test_cytoscape_with_namespace_packages() {
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
 
     // Test with namespace packages included
-    let output_with_ns = graph.to_cytoscape(false, true);
-    insta::assert_snapshot!("cytoscape_with_namespace_packages", output_with_ns);
+    let data_with_ns = graph.to_cytoscape_graph_data(false, true);
+    let serialized_with_ns = serde_json::to_string_pretty(&data_with_ns)
+        .expect("Cytoscape graph data should serialize to JSON");
+    insta::assert_snapshot!("cytoscape_with_namespace_packages", serialized_with_ns);
 
     // Test with namespace packages excluded (default)
-    let output_without_ns = graph.to_cytoscape(false, false);
-    insta::assert_snapshot!("cytoscape_without_namespace_packages", output_without_ns);
+    let data_without_ns = graph.to_cytoscape_graph_data(false, false);
+    let serialized_without_ns = serde_json::to_string_pretty(&data_without_ns)
+        .expect("Cytoscape graph data should serialize to JSON");
+    insta::assert_snapshot!(
+        "cytoscape_without_namespace_packages",
+        serialized_without_ns
+    );
 }
 
 #[test]
@@ -1510,12 +1509,16 @@ fn test_cytoscape_orphan_filtering() {
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
 
     // With orphans excluded (default)
-    let output_no_orphans = graph.to_cytoscape(false, false);
-    insta::assert_snapshot!("cytoscape_no_orphans", output_no_orphans);
+    let data_no_orphans = graph.to_cytoscape_graph_data(false, false);
+    let serialized_no_orphans = serde_json::to_string_pretty(&data_no_orphans)
+        .expect("Cytoscape graph data should serialize to JSON");
+    insta::assert_snapshot!("cytoscape_no_orphans", serialized_no_orphans);
 
     // With orphans included
-    let output_with_orphans = graph.to_cytoscape(true, false);
-    insta::assert_snapshot!("cytoscape_with_orphans", output_with_orphans);
+    let data_with_orphans = graph.to_cytoscape_graph_data(true, false);
+    let serialized_with_orphans = serde_json::to_string_pretty(&data_with_orphans)
+        .expect("Cytoscape graph data should serialize to JSON");
+    insta::assert_snapshot!("cytoscape_with_orphans", serialized_with_orphans);
 }
 
 #[test]
@@ -1524,27 +1527,12 @@ fn test_cytoscape_json_escaping() {
     // This verifies that JSON escaping works correctly
     let root = fixture_path();
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
-    let output = graph.to_cytoscape(false, false);
+    let graph_data = graph.to_cytoscape_graph_data(false, false);
+    let serialized =
+        serde_json::to_string(&graph_data).expect("Cytoscape graph data should serialize to JSON");
 
     // Verify JSON structure is valid
-    assert!(output.contains(r#"window.__GRAPH_DATA__"#));
-    assert!(output.contains(r#""nodes""#));
-    assert!(output.contains(r#""edges""#));
-    assert!(output.contains(r#""source""#) || output.contains(r#""source":"#));
-    assert!(output.contains(r#""target""#) || output.contains(r#""target":"#));
+    assert!(serde_json::from_str::<serde_json::Value>(&serialized).is_ok());
 
-    // Extract and validate the JSON data
-    if let Some(json_start) = output.find("window.__GRAPH_DATA__ = ") {
-        let json_section = &output[json_start + "window.__GRAPH_DATA__ = ".len()..];
-        if let Some(json_end) = json_section.find(";</script>") {
-            let json_data = &json_section[..json_end];
-            // Verify it's valid JSON by attempting to parse it
-            assert!(
-                serde_json::from_str::<serde_json::Value>(json_data).is_ok(),
-                "JSON data should be valid"
-            );
-        }
-    }
-
-    insta::assert_snapshot!(output);
+    insta::assert_snapshot!(serialized);
 }

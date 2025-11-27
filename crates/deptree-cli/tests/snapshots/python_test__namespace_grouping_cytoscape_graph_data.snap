@@ -3,10 +3,65 @@ source: crates/deptree-cli/tests/python_test.rs
 expression: serialized
 ---
 {
-  "config": {
-    "include_namespaces": false,
-    "include_orphans": false
-  },
+  "nodes": [
+    {
+      "id": "foo.bar.quux",
+      "type": "namespace_group",
+      "is_orphan": false,
+      "parent": "foo.bar"
+    },
+    {
+      "id": "foo",
+      "type": "module",
+      "is_orphan": false
+    },
+    {
+      "id": "foo.bar",
+      "type": "module",
+      "is_orphan": false,
+      "parent": "foo"
+    },
+    {
+      "id": "foo.bar.a",
+      "type": "module",
+      "is_orphan": false,
+      "parent": "foo.bar"
+    },
+    {
+      "id": "foo.bar.b",
+      "type": "module",
+      "is_orphan": false,
+      "parent": "foo.bar"
+    },
+    {
+      "id": "foo.bar.quux.c",
+      "type": "module",
+      "is_orphan": false,
+      "parent": "foo.bar.quux"
+    },
+    {
+      "id": "foo.bar.quux.d",
+      "type": "module",
+      "is_orphan": false,
+      "parent": "foo.bar.quux"
+    },
+    {
+      "id": "foo.baz",
+      "type": "module",
+      "is_orphan": false,
+      "parent": "foo"
+    },
+    {
+      "id": "main",
+      "type": "module",
+      "is_orphan": false
+    },
+    {
+      "id": "scripts.runner",
+      "type": "module",
+      "is_orphan": false
+    }
+  ],
   "edges": [
     {
       "source": "foo.bar.b",
@@ -49,63 +104,8 @@ expression: serialized
       "target": "foo.baz"
     }
   ],
-  "nodes": [
-    {
-      "id": "foo.bar.quux",
-      "is_orphan": false,
-      "parent": "foo.bar",
-      "type": "namespace_group"
-    },
-    {
-      "id": "foo",
-      "is_orphan": false,
-      "type": "module"
-    },
-    {
-      "id": "foo.bar",
-      "is_orphan": false,
-      "parent": "foo",
-      "type": "module"
-    },
-    {
-      "id": "foo.bar.a",
-      "is_orphan": false,
-      "parent": "foo.bar",
-      "type": "module"
-    },
-    {
-      "id": "foo.bar.b",
-      "is_orphan": false,
-      "parent": "foo.bar",
-      "type": "module"
-    },
-    {
-      "id": "foo.bar.quux.c",
-      "is_orphan": false,
-      "parent": "foo.bar.quux",
-      "type": "module"
-    },
-    {
-      "id": "foo.bar.quux.d",
-      "is_orphan": false,
-      "parent": "foo.bar.quux",
-      "type": "module"
-    },
-    {
-      "id": "foo.baz",
-      "is_orphan": false,
-      "parent": "foo",
-      "type": "module"
-    },
-    {
-      "id": "main",
-      "is_orphan": false,
-      "type": "module"
-    },
-    {
-      "id": "scripts.runner",
-      "is_orphan": false,
-      "type": "module"
-    }
-  ]
+  "config": {
+    "include_orphans": false,
+    "include_namespaces": false
+  }
 }
