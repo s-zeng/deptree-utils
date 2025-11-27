@@ -14,6 +14,13 @@ fn fixture_path() -> PathBuf {
         .join("sample_python_project")
 }
 
+fn namespace_grouping_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("test_namespace_grouping")
+}
+
 #[test]
 fn test_sample_python_project_dot_output() {
     let root = fixture_path();
@@ -1018,6 +1025,64 @@ fn test_highlighted_orphans_included() {
 
     // Should show full graph including orphans with highlighting
     insta::assert_snapshot!(output);
+}
+
+// ============================================================================
+// Namespace Grouping Tests
+// ============================================================================
+
+fn extract_cytoscape_data(html: &str) -> serde_json::Value {
+    let start_marker = "window.__GRAPH_DATA__ =";
+    let start = html
+        .find(start_marker)
+        .expect("Cytoscape graph data start not found");
+    let after_marker = &html[start + start_marker.len()..];
+
+    let after_equals = after_marker.trim_start();
+
+    let json_end = after_equals
+        .find("</script>")
+        .expect("Cytoscape graph data terminator not found");
+    let json_data = after_equals[..json_end].trim().trim_end_matches(';').trim();
+
+    serde_json::from_str(json_data).expect("Cytoscape graph data should be valid JSON")
+}
+
+#[test]
+fn test_namespace_grouping_dot_output() {
+    let root = namespace_grouping_fixture();
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze namespace grouping");
+    let dot_output = graph.to_dot(false, false);
+
+    // Should cluster foo, foo.bar, and foo.bar.quux namespaces into groups
+    insta::assert_snapshot!(dot_output);
+}
+
+#[test]
+fn test_namespace_grouping_mermaid_output() {
+    let root = namespace_grouping_fixture();
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze namespace grouping");
+    let mermaid_output = graph.to_mermaid(false, false);
+
+    // Should render namespace clusters as Mermaid subgraphs
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
+fn test_namespace_grouping_cytoscape_graph_data() {
+    let root = namespace_grouping_fixture();
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze namespace grouping");
+
+    let html = graph.to_cytoscape(false, false);
+    let graph_data = extract_cytoscape_data(&html);
+    let serialized = serde_json::to_string_pretty(&graph_data)
+        .expect("Cytoscape graph data should serialize to JSON");
+
+    // Capture compound parent/child relationships for namespace groups
+    insta::assert_snapshot!(serialized);
 }
 // ============================================================================
 // Namespace Package Tests

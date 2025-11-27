@@ -1,0 +1,111 @@
+---
+source: crates/deptree-cli/tests/python_test.rs
+expression: serialized
+---
+{
+  "config": {
+    "include_namespaces": false,
+    "include_orphans": false
+  },
+  "edges": [
+    {
+      "source": "foo.bar.b",
+      "target": "foo.bar"
+    },
+    {
+      "source": "foo.bar.b",
+      "target": "foo.bar.a"
+    },
+    {
+      "source": "foo.bar.quux.c",
+      "target": "foo"
+    },
+    {
+      "source": "foo.bar.quux.c",
+      "target": "foo.bar"
+    },
+    {
+      "source": "foo.baz",
+      "target": "foo.bar.a"
+    },
+    {
+      "source": "main",
+      "target": "foo.bar.quux.c"
+    },
+    {
+      "source": "main",
+      "target": "foo.bar.quux.d"
+    },
+    {
+      "source": "main",
+      "target": "foo.baz"
+    },
+    {
+      "source": "main",
+      "target": "scripts.runner"
+    },
+    {
+      "source": "scripts.runner",
+      "target": "foo.baz"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "foo.bar.quux",
+      "is_orphan": false,
+      "parent": "foo.bar",
+      "type": "namespace_group"
+    },
+    {
+      "id": "foo",
+      "is_orphan": false,
+      "type": "module"
+    },
+    {
+      "id": "foo.bar",
+      "is_orphan": false,
+      "parent": "foo",
+      "type": "module"
+    },
+    {
+      "id": "foo.bar.a",
+      "is_orphan": false,
+      "parent": "foo.bar",
+      "type": "module"
+    },
+    {
+      "id": "foo.bar.b",
+      "is_orphan": false,
+      "parent": "foo.bar",
+      "type": "module"
+    },
+    {
+      "id": "foo.bar.quux.c",
+      "is_orphan": false,
+      "parent": "foo.bar.quux",
+      "type": "module"
+    },
+    {
+      "id": "foo.bar.quux.d",
+      "is_orphan": false,
+      "parent": "foo.bar.quux",
+      "type": "module"
+    },
+    {
+      "id": "foo.baz",
+      "is_orphan": false,
+      "parent": "foo",
+      "type": "module"
+    },
+    {
+      "id": "main",
+      "is_orphan": false,
+      "type": "module"
+    },
+    {
+      "id": "scripts.runner",
+      "is_orphan": false,
+      "type": "module"
+    }
+  ]
+}
