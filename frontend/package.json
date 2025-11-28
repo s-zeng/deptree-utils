@@ -7,6 +7,7 @@
     "build": "vite build",
     "build:inline": "vite build --mode inline",
     "preview": "vite preview",
+    "lint": "tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:watch": "vitest --watch"

@@ -51,6 +51,11 @@ export class ModuleSelector {
    * Add a module to the selection
    */
   addModule(moduleId: string): void {
+    if (!this.allModules.includes(moduleId)) {
+      console.warn(`Module "${moduleId}" is not available to select`);
+      return;
+    }
+
     this.selected.add(moduleId);
     this.render();
     this.onChange(this.selected);

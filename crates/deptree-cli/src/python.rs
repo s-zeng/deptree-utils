@@ -28,15 +28,6 @@ pub enum PythonAnalysisError {
     NoSourceRootFound(PathBuf),
 }
 
-/// Output format for dependency graphs
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    Dot,
-    Mermaid,
-    List,
-    Cytoscape,
-}
-
 /// Represents a Python module within the project
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModulePath(pub Vec<String>);

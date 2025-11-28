@@ -1,5 +1,6 @@
+import type * as cytoscapeTypes from "cytoscape";
+import type { LayoutOptionsWithExtensions } from "./layout-types";
 import type { GraphData, DistanceMap } from "./types";
-import type cytoscape from "cytoscape";
 
 // Declare Cytoscape as a global (loaded from CDN)
 declare const cytoscape: typeof import("cytoscape");
@@ -12,7 +13,7 @@ export const HIGHLIGHT_SELECTOR = "node[?highlighted]";
 export function initializeCytoscape(
   graphData: GraphData,
   distances: DistanceMap,
-): cytoscape.Core {
+): cytoscapeTypes.Core {
   // Register layout extensions
   registerLayoutExtensions();
 
@@ -20,6 +21,14 @@ export function initializeCytoscape(
   const elements = transformToElements(graphData, distances);
 
   // Initialize Cytoscape
+  const layoutOptions: LayoutOptionsWithExtensions = {
+    name: "dagre",
+    rankDir: "LR",
+    nodeSep: 50,
+    rankSep: 100,
+    padding: 30,
+  };
+
   const cy = cytoscape({
     container: document.getElementById("cy"),
 
@@ -28,13 +37,7 @@ export function initializeCytoscape(
     style: getCytoscapeStyles(),
 
     // Initial layout will be set by layout manager
-    layout: {
-      name: "dagre",
-      rankDir: "LR",
-      nodeSep: 50,
-      rankSep: 100,
-      padding: 30,
-    },
+    layout: layoutOptions,
   });
 
   // Setup event handlers
@@ -79,8 +82,8 @@ function registerLayoutExtensions(): void {
 function transformToElements(
   graphData: GraphData,
   distances: DistanceMap,
-): cytoscape.ElementDefinition[] {
-  const elements: cytoscape.ElementDefinition[] = [];
+): cytoscapeTypes.ElementDefinition[] {
+  const elements: cytoscapeTypes.ElementDefinition[] = [];
 
   // Add nodes
   for (const node of graphData.nodes) {
@@ -122,7 +125,7 @@ function transformToElements(
 /**
  * Get Cytoscape style definitions
  */
-export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
+export function getCytoscapeStyles(): cytoscapeTypes.StylesheetJson {
   return [
     // Default node style
     {
@@ -223,7 +226,7 @@ export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
 /**
  * Setup Cytoscape event handlers
  */
-function setupEventHandlers(cy: cytoscape.Core): void {
+function setupEventHandlers(cy: cytoscapeTypes.Core): void {
   // Update info panel on node selection
   cy.on("select", "node", (evt) => {
     const node = evt.target;
@@ -245,20 +248,20 @@ function setupEventHandlers(cy: cytoscape.Core): void {
  * Control functions for Cytoscape
  */
 export const cytoscapeControls = {
-  fitGraph(cy: cytoscape.Core): void {
+  fitGraph(cy: cytoscapeTypes.Core): void {
     cy.fit(undefined, 50);
   },
 
-  resetZoom(cy: cytoscape.Core): void {
+  resetZoom(cy: cytoscapeTypes.Core): void {
     cy.zoom(1);
     cy.center();
   },
 
-  centerGraph(cy: cytoscape.Core): void {
+  centerGraph(cy: cytoscapeTypes.Core): void {
     cy.center();
   },
 
-  exportPNG(cy: cytoscape.Core): void {
+  exportPNG(cy: cytoscapeTypes.Core): void {
     const png = cy.png({ full: true, scale: 2 });
     const link = document.createElement("a");
     link.download = "dependency-graph.png";

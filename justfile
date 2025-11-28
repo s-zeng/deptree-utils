@@ -63,6 +63,20 @@ cli-test-review:
 cli-test-accept:
     cargo insta test --accept
 
+# === Lint Commands ===
+
+# Run Rust and TypeScript linters
+lint: lint-rust lint-frontend
+    @echo "✓ Lint checks passed"
+
+# Run Rust lints
+lint-rust:
+    cargo clippy --all-targets --all-features -- -D warnings
+
+# Run TypeScript lints (type-level + unused checks)
+lint-frontend:
+    cd frontend && bun run lint
+
 # Run CLI with arguments
 cli-run *ARGS:
     cargo run {{ARGS}}

@@ -1,5 +1,5 @@
 import "./styles/main.css";
-import type { GraphData } from "./types";
+import type { DistanceMap, GraphData } from "./types";
 import { initializeCytoscape } from "./cytoscape-manager";
 import { LayoutManager } from "./layout-manager";
 import { FilterState } from "./filter-state";

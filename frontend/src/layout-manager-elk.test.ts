@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { LayoutManager } from "./layout-manager";
-import type cytoscape from "cytoscape";
 import { compoundGraphData } from "../tests/fixtures/sample-graph";
 
 // Mock Cytoscape instance with compound node support
@@ -26,7 +25,7 @@ function createMockCytoscapeWithCompoundNodes() {
   return {
     nodes: vi.fn(() => mockNodes),
     edges: vi.fn(() => mockEdges),
-    layout: vi.fn((options: any) => ({
+    layout: vi.fn((_options: any) => ({
       run: vi.fn(),
       stop: vi.fn(),
     })),

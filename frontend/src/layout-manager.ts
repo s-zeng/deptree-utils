@@ -1,9 +1,6 @@
 import type cytoscape from "cytoscape";
-import {
-  LAYOUT_CONFIGS,
-  type LayoutConfig,
-  type LayoutSetting,
-} from "./layout-configs";
+import { LAYOUT_CONFIGS, type LayoutSetting } from "./layout-configs";
+import type { LayoutOptionsWithExtensions } from "./layout-types";
 
 export class LayoutManager {
   private cy: cytoscape.Core;
@@ -51,7 +48,7 @@ export class LayoutManager {
   /**
    * Get current layout options for Cytoscape
    */
-  getLayoutOptions(): cytoscape.LayoutOptions {
+  getLayoutOptions(): LayoutOptionsWithExtensions {
     const layoutSettings = this.settings.get(this.currentLayout);
     if (!layoutSettings) {
       return { name: this.currentLayout };
@@ -60,7 +57,7 @@ export class LayoutManager {
     // ELK uses a nested `elk` options object; keep it separate so Cytoscape-ELK
     // forwards the hierarchy handling and other options correctly for compound graphs.
     if (this.currentLayout === "elk") {
-      const elkOptions: Record<string, any> = {};
+      const elkOptions: Record<string, unknown> = {};
 
       for (const [key, value] of layoutSettings.entries()) {
         if (value !== null) {
@@ -76,7 +73,7 @@ export class LayoutManager {
       };
     }
 
-    const options: any = {
+    const options: LayoutOptionsWithExtensions = {
       name: this.currentLayout,
       animate: false,
     };
@@ -94,7 +91,7 @@ export class LayoutManager {
   /**
    * Get layout options with animation
    */
-  getLayoutOptionsWithAnimation(): cytoscape.LayoutOptions {
+  getLayoutOptionsWithAnimation(): LayoutOptionsWithExtensions {
     return {
       ...this.getLayoutOptions(),
       animate: true,

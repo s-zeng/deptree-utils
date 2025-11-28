@@ -1,7 +1,15 @@
 use clap::{Parser, Subcommand};
+use deptree_utils::python;
 use std::path::{Path, PathBuf};
 
-mod python;
+/// Output formats supported by the CLI
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputFormat {
+    Dot,
+    Mermaid,
+    List,
+    Cytoscape,
+}
 
 /// Parse a module input, which can be either:
 /// - A dotted module name like "pkg_a.module_a"
@@ -263,10 +271,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Parse output format
             let output_format = match format.as_str() {
-                "dot" => python::OutputFormat::Dot,
-                "mermaid" => python::OutputFormat::Mermaid,
-                "list" => python::OutputFormat::List,
-                "cytoscape" => python::OutputFormat::Cytoscape,
+                "dot" => OutputFormat::Dot,
+                "mermaid" => OutputFormat::Mermaid,
+                "list" => OutputFormat::List,
+                "cytoscape" => OutputFormat::Cytoscape,
                 _ => unreachable!("Invalid format validated by clap"),
             };
 
@@ -338,7 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
 
                 match output_format {
-                    python::OutputFormat::Dot => {
+                    OutputFormat::Dot => {
                         if show_all {
                             println!(
                                 "{}",
@@ -359,7 +367,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                     }
-                    python::OutputFormat::Mermaid => {
+                    OutputFormat::Mermaid => {
                         if show_all {
                             println!(
                                 "{}",
@@ -380,7 +388,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                     }
-                    python::OutputFormat::Cytoscape => {
+                    OutputFormat::Cytoscape => {
                         if show_all {
                             println!(
                                 "{}",
@@ -401,7 +409,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                     }
-                    python::OutputFormat::List => {
+                    OutputFormat::List => {
                         if show_all {
                             return Err("--show-all cannot be used with --format list".into());
                         }
@@ -414,25 +422,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 // Default behavior: output full graph in the specified format
                 match output_format {
-                    python::OutputFormat::Dot => {
+                    OutputFormat::Dot => {
                         println!(
                             "{}",
                             graph.to_dot(include_orphans, include_namespace_packages)
                         );
                     }
-                    python::OutputFormat::Mermaid => {
+                    OutputFormat::Mermaid => {
                         println!(
                             "{}",
                             graph.to_mermaid(include_orphans, include_namespace_packages)
                         );
                     }
-                    python::OutputFormat::Cytoscape => {
+                    OutputFormat::Cytoscape => {
                         println!(
                             "{}",
                             graph.to_cytoscape(include_orphans, include_namespace_packages)
                         );
                     }
-                    python::OutputFormat::List => {
+                    OutputFormat::List => {
                         return Err(
                             "List format requires --downstream or --upstream to be specified"
                                 .into(),

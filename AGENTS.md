@@ -63,6 +63,9 @@ This project uses `just` (justfile) for build automation. The build pipeline has
 - `just clean-wasm` - removes only `crates/deptree-wasm/pkg/`
 - `just clean-frontend` - removes `frontend/dist/`, `frontend/src/wasm/`, and the CLI template
 
+**Linting**:
+- `just lint` - runs `cargo clippy --all-targets --all-features -D warnings` and `bun run lint` (TypeScript `tsc --noEmit`)
+
 ## Features
 
 ### Python Dependency Analysis

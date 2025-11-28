@@ -3,9 +3,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-// Re-export from main crate
-#[path = "../src/python.rs"]
-mod python;
+use deptree_utils::python;
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
