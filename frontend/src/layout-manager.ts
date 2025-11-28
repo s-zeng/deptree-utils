@@ -107,7 +107,12 @@ export class LayoutManager {
       ? this.getLayoutOptionsWithAnimation()
       : this.getLayoutOptions();
 
-    this.cy.layout(options).run();
+    const elements = this.cy.elements(":visible");
+    if (elements.length === 0) {
+      return;
+    }
+
+    elements.layout(options).run();
   }
 
   /**

@@ -2,11 +2,20 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { LayoutManager } from "./layout-manager";
 
 function createMockCytoscape() {
+  const layoutRun = vi.fn();
+  const layoutStop = vi.fn();
+  const layout = vi.fn(() => ({
+    run: layoutRun,
+    stop: layoutStop,
+  }));
+  const elements = vi.fn(() => ({
+    layout,
+    length: 2,
+  }));
+
   return {
-    layout: vi.fn(() => ({
-      run: vi.fn(),
-      stop: vi.fn(),
-    })),
+    elements,
+    __layoutMock: layout,
   } as any;
 }
 
@@ -26,7 +35,8 @@ describe("LayoutManager", () => {
 
   it("should apply layout to Cytoscape", () => {
     layoutManager.applyLayout(false);
-    expect(mockCy.layout).toHaveBeenCalled();
+    expect(mockCy.elements).toHaveBeenCalledWith(":visible");
+    expect(mockCy.__layoutMock).toHaveBeenCalled();
   });
 
   it("should switch to different layout", () => {
@@ -49,14 +59,14 @@ describe("LayoutManager", () => {
   it("should apply layout with animation when animated=true", () => {
     layoutManager.applyLayout(true);
 
-    const layoutCall = mockCy.layout.mock.calls[0][0];
+    const layoutCall = mockCy.__layoutMock.mock.calls[0][0];
     expect(layoutCall.animate).toBe(true);
   });
 
   it("should apply layout without animation when animated=false", () => {
     layoutManager.applyLayout(false);
 
-    const layoutCall = mockCy.layout.mock.calls[0][0];
+    const layoutCall = mockCy.__layoutMock.mock.calls[0][0];
     expect(layoutCall.animate).toBe(false);
   });
 

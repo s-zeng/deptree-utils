@@ -22,13 +22,19 @@ function createMockCytoscapeWithCompoundNodes() {
     target: () => ({ id: () => edge.target }),
   }));
 
+  const layout = vi.fn((_options: any) => ({
+    run: vi.fn(),
+    stop: vi.fn(),
+  }));
+
   return {
     nodes: vi.fn(() => mockNodes),
     edges: vi.fn(() => mockEdges),
-    layout: vi.fn((_options: any) => ({
-      run: vi.fn(),
-      stop: vi.fn(),
+    elements: vi.fn(() => ({
+      layout,
+      length: mockNodes.length + mockEdges.length,
     })),
+    __layoutMock: layout,
   } as any;
 }
 
@@ -67,7 +73,8 @@ describe("LayoutManager - ELK with Compound Nodes", () => {
       }).not.toThrow();
 
       // Verify layout was called with correct options
-      expect(mockCy.layout).toHaveBeenCalledWith(
+      expect(mockCy.elements).toHaveBeenCalledWith(":visible");
+      expect(mockCy.__layoutMock).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "elk",
           elk: expect.objectContaining({
@@ -81,7 +88,7 @@ describe("LayoutManager - ELK with Compound Nodes", () => {
       layoutManager.setLayout("elk");
       layoutManager.applyLayout(false);
 
-      const layoutCall = mockCy.layout.mock.calls[0][0];
+      const layoutCall = mockCy.__layoutMock.mock.calls[0][0];
 
       // Verify all standard ELK options are present
       expect(layoutCall.elk).toBeDefined();
@@ -99,7 +106,7 @@ describe("LayoutManager - ELK with Compound Nodes", () => {
 
       layoutManager.applyLayout(false);
 
-      const options = mockCy.layout.mock.calls[0][0];
+      const options = mockCy.__layoutMock.mock.calls[0][0];
       expect(options.elk.algorithm).toBe("layered");
       expect(options.elk["elk.hierarchyHandling"]).toBe("INCLUDE_CHILDREN");
     });
@@ -114,7 +121,9 @@ describe("LayoutManager - ELK with Compound Nodes", () => {
         layoutManager.applyLayout(false);
 
         const options =
-          mockCy.layout.mock.calls[mockCy.layout.mock.calls.length - 1][0];
+          mockCy.__layoutMock.mock.calls[
+            mockCy.__layoutMock.mock.calls.length - 1
+          ][0];
         expect(options.elk.algorithm).toBe(algorithm);
         expect(options.elk["elk.hierarchyHandling"]).toBe("INCLUDE_CHILDREN");
       }
