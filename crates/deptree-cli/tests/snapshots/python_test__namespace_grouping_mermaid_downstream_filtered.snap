@@ -1,0 +1,17 @@
+---
+source: crates/deptree-cli/tests/python_test.rs
+expression: mermaid_output
+---
+flowchart TD
+    subgraph foo["foo"]
+        foo_baz("foo.baz")
+        subgraph foo_bar["foo.bar"]
+            foo_bar_a("foo.bar.a")
+            foo_bar_b("foo.bar.b")
+        end
+    end
+    foo_bar_b("foo.bar.b") --> foo_bar_a("foo.bar.a")
+    foo_baz("foo.baz") --> foo_bar_a("foo.bar.a")
+    main("main") --> foo_baz("foo.baz")
+    main("main") --> scripts_runner("scripts.runner")
+    scripts_runner("scripts.runner") --> foo_baz("foo.baz")

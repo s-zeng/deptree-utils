@@ -3,10 +3,13 @@ source: crates/deptree-cli/tests/python_test.rs
 expression: output
 ---
 flowchart TD
-    main("main") --> pkg_a_module_a("pkg_a.module_a")
+    main("main")
     class main highlighted
+    pkg_a_module_a("pkg_a.module_a")
     class pkg_a_module_a highlighted
-    main("main") --> pkg_b_module_b("pkg_b.module_b")
+    pkg_b_module_b("pkg_b.module_b")
     class pkg_b_module_b highlighted
+    main("main") --> pkg_a_module_a("pkg_a.module_a")
+    main("main") --> pkg_b_module_b("pkg_b.module_b")
     pkg_a_module_a("pkg_a.module_a") --> pkg_b_module_b("pkg_b.module_b")
     classDef highlighted fill:#bbdefb,stroke:#1976d2,stroke-width:2px

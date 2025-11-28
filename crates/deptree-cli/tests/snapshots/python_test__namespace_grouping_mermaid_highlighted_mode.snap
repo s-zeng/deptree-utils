@@ -1,0 +1,36 @@
+---
+source: crates/deptree-cli/tests/python_test.rs
+expression: mermaid_output
+---
+flowchart TD
+    subgraph foo["foo"]
+        foo_bar("foo.bar")
+        foo_baz("foo.baz")
+        class foo_baz highlighted
+        subgraph foo_bar["foo.bar"]
+            foo_bar_a("foo.bar.a")
+            class foo_bar_a highlighted
+            foo_bar_b("foo.bar.b")
+            class foo_bar_b highlighted
+            subgraph foo_bar_quux["foo.bar.quux"]
+                foo_bar_quux_c("foo.bar.quux.c")
+                foo_bar_quux_d("foo.bar.quux.d")
+            end
+        end
+    end
+    foo("foo")
+    main("main")
+    class main highlighted
+    scripts_runner("scripts.runner")
+    class scripts_runner highlighted
+    foo_bar_b("foo.bar.b") --> foo_bar("foo.bar")
+    foo_bar_b("foo.bar.b") --> foo_bar_a("foo.bar.a")
+    foo_bar_quux_c("foo.bar.quux.c") --> foo("foo")
+    foo_bar_quux_c("foo.bar.quux.c") --> foo_bar("foo.bar")
+    foo_baz("foo.baz") --> foo_bar_a("foo.bar.a")
+    main("main") --> foo_bar_quux_c("foo.bar.quux.c")
+    main("main") --> foo_bar_quux_d("foo.bar.quux.d")
+    main("main") --> foo_baz("foo.baz")
+    main("main") --> scripts_runner("scripts.runner")
+    scripts_runner("scripts.runner") --> foo_baz("foo.baz")
+    classDef highlighted fill:#bbdefb,stroke:#1976d2,stroke-width:2px

@@ -1052,6 +1052,62 @@ fn test_namespace_grouping_mermaid_output() {
 }
 
 #[test]
+fn test_namespace_grouping_mermaid_downstream_filtered() {
+    let root = namespace_grouping_fixture();
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze namespace grouping");
+
+    let roots = vec![python::ModulePath(vec![
+        "foo".to_string(),
+        "bar".to_string(),
+        "a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let filter: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let mermaid_output = graph.to_mermaid_filtered(&filter, false, false);
+
+    // Downstream view should preserve namespace subgraphs
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
+fn test_namespace_grouping_mermaid_upstream_filtered() {
+    let root = namespace_grouping_fixture();
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze namespace grouping");
+
+    let roots = vec![python::ModulePath(vec![
+        "scripts".to_string(),
+        "runner".to_string(),
+    ])];
+    let upstream = graph.find_upstream(&roots, None);
+    let filter: std::collections::HashSet<_> = upstream.keys().cloned().collect();
+    let mermaid_output = graph.to_mermaid_filtered(&filter, false, false);
+
+    // Upstream view should preserve namespace subgraphs
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
+fn test_namespace_grouping_mermaid_highlighted_mode() {
+    let root = namespace_grouping_fixture();
+    let graph =
+        python::analyze_project(&root, None, &[]).expect("Failed to analyze namespace grouping");
+
+    let roots = vec![python::ModulePath(vec![
+        "foo".to_string(),
+        "bar".to_string(),
+        "a".to_string(),
+    ])];
+    let downstream = graph.find_downstream(&roots, None);
+    let highlight_set: std::collections::HashSet<_> = downstream.keys().cloned().collect();
+    let mermaid_output = graph.to_mermaid_highlighted(&highlight_set, false, false);
+
+    // Highlighted (show-all) view should preserve namespace subgraphs
+    insta::assert_snapshot!(mermaid_output);
+}
+
+#[test]
 fn test_namespace_grouping_cytoscape_graph_data() {
     let root = namespace_grouping_fixture();
     let graph =

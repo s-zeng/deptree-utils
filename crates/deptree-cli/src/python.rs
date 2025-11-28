@@ -276,6 +276,11 @@ struct MermaidNodeSpec {
     shape: MermaidShape,
 }
 
+struct MermaidRenderArgs<'a> {
+    highlight_set: Option<&'a HashSet<ModulePath>>,
+    specs: &'a HashMap<String, MermaidNodeSpec>,
+}
+
 impl MermaidNodeSpec {
     fn render_definition(&self, indent: &str, highlighted: bool) -> String {
         let base = match self.shape {
@@ -1205,10 +1210,9 @@ impl DependencyGraph {
     fn render_mermaid_subgraph(
         &self,
         node: &NamespaceTree,
-        highlight_set: Option<&HashSet<ModulePath>>,
-        include_namespace_packages: bool,
-        specs: &HashMap<String, MermaidNodeSpec>,
         indent_level: usize,
+        args: &MermaidRenderArgs<'_>,
+        highlighted_nodes: &mut HashSet<String>,
         output: &mut String,
     ) {
         let indent = "    ".repeat(indent_level);
@@ -1216,14 +1220,7 @@ impl DependencyGraph {
         // Root node should never create a subgraph, just process children
         if node.path.is_empty() {
             for child in node.child_groups() {
-                self.render_mermaid_subgraph(
-                    child,
-                    highlight_set,
-                    include_namespace_packages,
-                    specs,
-                    indent_level,
-                    output,
-                );
+                self.render_mermaid_subgraph(child, indent_level, args, highlighted_nodes, output);
             }
             return;
         }
@@ -1236,10 +1233,14 @@ impl DependencyGraph {
 
             // Find and render direct children modules
             for module in node.direct_concrete_children() {
-                if let Some(spec) = specs.get(&module.to_dotted()) {
-                    let is_highlighted = highlight_set
+                if let Some(spec) = args.specs.get(&module.to_dotted()) {
+                    let is_highlighted = args
+                        .highlight_set
                         .map(|set| set.contains(&module))
                         .unwrap_or(false);
+                    if is_highlighted {
+                        highlighted_nodes.insert(spec.id.clone());
+                    }
                     output.push_str(&spec.render_definition(&indent, is_highlighted));
                 }
             }
@@ -1248,10 +1249,9 @@ impl DependencyGraph {
             for child in node.child_groups() {
                 self.render_mermaid_subgraph(
                     child,
-                    highlight_set,
-                    include_namespace_packages,
-                    specs,
                     indent_level + 1,
+                    args,
+                    highlighted_nodes,
                     output,
                 );
             }
@@ -1259,14 +1259,7 @@ impl DependencyGraph {
             output.push_str(&format!("{indent}end\n"));
         } else {
             for child in node.child_groups() {
-                self.render_mermaid_subgraph(
-                    child,
-                    highlight_set,
-                    include_namespace_packages,
-                    specs,
-                    indent_level,
-                    output,
-                );
+                self.render_mermaid_subgraph(child, indent_level, args, highlighted_nodes, output);
             }
         }
     }
@@ -1281,21 +1274,24 @@ impl DependencyGraph {
         );
         let forest = self.build_namespace_forest(&nodes);
         let specs = self.mermaid_spec_map(&nodes, include_namespace_packages);
+        let mut highlighted_nodes = HashSet::new();
+        let args = MermaidRenderArgs {
+            highlight_set: None,
+            specs: &specs,
+        };
 
         self.render_mermaid_subgraph(
             &forest.internal,
-            None,
-            include_namespace_packages,
-            &specs,
             1,
+            &args,
+            &mut highlighted_nodes,
             &mut output,
         );
         self.render_mermaid_subgraph(
             &forest.scripts,
-            None,
-            include_namespace_packages,
-            &specs,
             1,
+            &args,
+            &mut highlighted_nodes,
             &mut output,
         );
 
@@ -1342,30 +1338,44 @@ impl DependencyGraph {
         let specs = self.mermaid_spec_map(&nodes, include_namespace_packages);
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
         let edges = self.collect_edges(&node_set, include_namespace_packages);
+        let forest = self.build_namespace_forest(&nodes);
+        let mut highlighted_nodes: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let args = MermaidRenderArgs {
+            highlight_set: Some(highlight_set),
+            specs: &specs,
+        };
 
-        // Create a set of nodes that appear in edges for efficient lookup
-        let nodes_in_edges: std::collections::HashSet<String> = edges
-            .iter()
-            .flat_map(|(from, to)| vec![from.clone(), to.clone()])
-            .collect();
+        self.render_mermaid_subgraph(
+            &forest.internal,
+            1,
+            &args,
+            &mut highlighted_nodes,
+            &mut output,
+        );
+        self.render_mermaid_subgraph(
+            &forest.scripts,
+            1,
+            &args,
+            &mut highlighted_nodes,
+            &mut output,
+        );
 
-        // Add nodes that don't appear in edges (orphans if include_orphans is true)
-        for idx in &nodes {
-            let module = &self.graph[*idx];
-            let module_name = module.to_dotted();
+        let mut ungrouped = Vec::new();
+        self.collect_ungrouped_modules(&forest.internal, &mut ungrouped);
+        self.collect_ungrouped_modules(&forest.scripts, &mut ungrouped);
+        ungrouped.sort_by_key(|module| module.to_dotted());
 
-            // Only output standalone node definitions for nodes without edges
-            if !nodes_in_edges.contains(&module_name) {
-                if let Some(spec) = specs.get(&module_name) {
-                    let is_highlighted = highlight_set.contains(module);
-                    output.push_str(&spec.render_definition("", is_highlighted));
+        for module in &ungrouped {
+            let is_highlighted = highlight_set.contains(module);
+            if let Some(spec) = specs.get(&module.to_dotted()) {
+                if is_highlighted {
+                    highlighted_nodes.insert(spec.id.clone());
                 }
+                output.push_str(&spec.render_definition("", is_highlighted));
             }
         }
 
-        // Track which nodes have been assigned the highlighted class to avoid duplicates
-        let mut highlighted_nodes: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
         let highlighted_names: std::collections::HashSet<String> =
             highlight_set.iter().map(ModulePath::to_dotted).collect();
 
@@ -1483,9 +1493,30 @@ impl DependencyGraph {
             include_orphans,
             include_namespace_packages,
         );
+        let forest = self.build_namespace_forest(&nodes);
         let specs = self.mermaid_spec_map(&nodes, include_namespace_packages);
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
         let edges = self.collect_edges(&node_set, include_namespace_packages);
+        let mut highlighted_nodes = HashSet::new();
+        let args = MermaidRenderArgs {
+            highlight_set: None,
+            specs: &specs,
+        };
+
+        self.render_mermaid_subgraph(
+            &forest.internal,
+            1,
+            &args,
+            &mut highlighted_nodes,
+            &mut output,
+        );
+        self.render_mermaid_subgraph(
+            &forest.scripts,
+            1,
+            &args,
+            &mut highlighted_nodes,
+            &mut output,
+        );
 
         // Create a set of nodes that appear in edges for efficient lookup
         let nodes_in_edges: std::collections::HashSet<String> = edges
