@@ -1,0 +1,36 @@
+digraph dependencies {
+    rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
+    subgraph cluster_foo {
+        label = "foo";
+        "foo.baz";
+        subgraph cluster_foo_bar {
+            label = "foo.bar";
+            "foo.bar.a";
+            "foo.bar.b";
+            subgraph cluster_foo_bar_quux {
+                label = "foo.bar.quux";
+                "foo.bar.quux.c";
+                "foo.bar.quux.d";
+            }
+        }
+    }
+    "main";
+    "scripts.runner";
+    "foo.bar.b" -> "foo.bar.a";
+    "foo.bar.b" -> "foo.bar.b";
+    "foo.bar.b" -> "foo.bar.quux.c";
+    "foo.bar.b" -> "foo.bar.quux.d";
+    "foo.bar.quux.c" -> "foo.bar.a";
+    "foo.bar.quux.c" -> "foo.bar.b";
+    "foo.bar.quux.c" -> "foo.bar.quux.c";
+    "foo.bar.quux.c" -> "foo.bar.quux.d";
+    "foo.bar.quux.c" -> "foo.baz";
+    "foo.baz" -> "foo.bar.a";
+    "main" -> "foo.bar.quux.c";
+    "main" -> "foo.bar.quux.d";
+    "main" -> "foo.baz";
+    "main" -> "scripts.runner";
+    "scripts.runner" -> "foo.baz";
+}
+
