@@ -4,7 +4,9 @@
 //! of internal module dependencies.
 
 use petgraph::Direction;
+use petgraph::algo::dijkstra;
 use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::Reversed;
 use ruff_python_parser::parse_module;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -480,6 +482,20 @@ impl NamespaceTree {
 struct NamespaceForest {
     internal: NamespaceTree,
     scripts: NamespaceTree,
+}
+
+enum EitherGraph<'a> {
+    Forward(&'a DiGraph<ModulePath, ()>),
+    Reversed(Reversed<&'a DiGraph<ModulePath, ()>>),
+}
+
+impl<'a> EitherGraph<'a> {
+    fn run_dijkstra(&self, start: NodeIndex) -> HashMap<NodeIndex, usize> {
+        match self {
+            EitherGraph::Forward(graph) => dijkstra(*graph, start, None, |_| 1usize),
+            EitherGraph::Reversed(graph) => dijkstra(*graph, start, None, |_| 1usize),
+        }
+    }
 }
 
 /// The dependency graph of Python modules
@@ -1556,11 +1572,7 @@ impl DependencyGraph {
         roots: &[ModulePath],
         max_rank: Option<usize>,
     ) -> HashMap<ModulePath, usize> {
-        self.collect_with_distances(roots, max_rank, |idx| {
-            self.graph
-                .neighbors_directed(idx, Direction::Incoming)
-                .collect()
-        })
+        self.collect_with_distances(roots, max_rank, Direction::Incoming)
     }
 
     /// Find all modules that the given root modules depend on (upstream dependencies).
@@ -1572,64 +1584,46 @@ impl DependencyGraph {
         roots: &[ModulePath],
         max_rank: Option<usize>,
     ) -> HashMap<ModulePath, usize> {
-        self.collect_with_distances(roots, max_rank, |idx| self.graph.neighbors(idx).collect())
+        self.collect_with_distances(roots, max_rank, Direction::Outgoing)
     }
 
-    fn collect_with_distances<F>(
+    fn collect_with_distances(
         &self,
         roots: &[ModulePath],
         max_rank: Option<usize>,
-        neighbors: F,
-    ) -> HashMap<ModulePath, usize>
-    where
-        F: Fn(NodeIndex) -> Vec<NodeIndex>,
-    {
-        let mut queue = std::collections::VecDeque::new();
-        let mut distances: HashMap<NodeIndex, usize> = HashMap::new();
+        direction: Direction,
+    ) -> HashMap<ModulePath, usize> {
+        let distance_maps = roots
+            .iter()
+            .filter_map(|module| self.node_indices.get(module).map(|&idx| (module, idx)));
 
-        for module in roots {
-            if let Some(&idx) = self.node_indices.get(module) {
-                distances.entry(idx).or_insert(0);
-                queue.push_back(idx);
-            }
-        }
+        let mut aggregated: HashMap<NodeIndex, usize> = HashMap::new();
 
-        while let Some(node_idx) = queue.pop_front() {
-            let current_distance = *distances
-                .get(&node_idx)
-                .expect("distance map should contain queued node");
+        for (_, start_idx) in distance_maps {
+            let view = match direction {
+                Direction::Outgoing => EitherGraph::Forward(&self.graph),
+                Direction::Incoming => EitherGraph::Reversed(Reversed(&self.graph)),
+            };
 
-            if let Some(max) = max_rank {
-                if current_distance >= max {
+            let distances = view.run_dijkstra(start_idx);
+
+            for (idx, distance) in distances {
+                if max_rank.map(|limit| distance > limit).unwrap_or(false) {
                     continue;
                 }
-            }
-
-            let next_distance = current_distance + 1;
-            for neighbor in neighbors(node_idx) {
-                let should_update = match distances.get_mut(&neighbor) {
-                    Some(existing) if *existing <= next_distance => false,
-                    Some(existing) => {
-                        *existing = next_distance;
-                        true
+                match aggregated.get(&idx) {
+                    Some(&existing) if existing <= distance => {}
+                    _ => {
+                        aggregated.insert(idx, distance);
                     }
-                    None => {
-                        distances.insert(neighbor, next_distance);
-                        true
-                    }
-                };
-
-                if should_update {
-                    queue.push_back(neighbor);
                 }
             }
         }
 
-        let mut result = HashMap::new();
-        for (idx, distance) in distances {
-            result.insert(self.graph[idx].clone(), distance);
-        }
-        result
+        aggregated
+            .into_iter()
+            .map(|(idx, distance)| (self.graph[idx].clone(), distance))
+            .collect()
     }
 
     /// Check if a node is an orphan (has no incoming or outgoing edges)
