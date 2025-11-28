@@ -35,7 +35,7 @@ pub struct GraphData {
 }
 
 /// Configuration for graph visualization
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphConfig {
     pub include_orphans: bool,
     pub include_namespaces: bool,
@@ -76,6 +76,7 @@ pub struct FilterResult {
 pub struct GraphProcessor {
     nodes: Vec<GraphNode>,
     edges: Vec<GraphEdge>,
+    config: Option<GraphConfig>,
 }
 
 #[wasm_bindgen]
@@ -84,11 +85,12 @@ impl GraphProcessor {
     #[wasm_bindgen(constructor)]
     pub fn new(graph_json: &str) -> Result<GraphProcessor, JsValue> {
         let graph_data: GraphData = serde_json::from_str(graph_json)
-            .map_err(|e| JsValue::from_str(&format!("Failed to parse graph JSON: {}", e)))?;
+            .map_err(|e| JsValue::from_str(&format!("Failed to parse graph JSON: {e}")))?;
 
         Ok(GraphProcessor {
             nodes: graph_data.nodes,
             edges: graph_data.edges,
+            config: graph_data.config,
         })
     }
 
@@ -96,7 +98,7 @@ impl GraphProcessor {
     /// Returns JSON object with distances: { "node1": { "node2": 2, "node3": 1 }, ... }
     pub fn compute_all_distances(&self) -> JsValue {
         let distances = graph::compute_all_distances(&self.nodes, &self.edges);
-        serde_wasm_bindgen::to_value(&distances).unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&distances).unwrap_or(JsValue::NULL)
     }
 
     /// Check if a node is an orphan (no incoming or outgoing edges)
@@ -288,7 +290,7 @@ impl GraphProcessor {
             .into(),
         );
 
-        serde_wasm_bindgen::to_value(&result).unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
     }
 
     /// Get all upstream dependencies from given roots
@@ -296,7 +298,7 @@ impl GraphProcessor {
     pub fn get_upstream(&self, roots: Vec<String>, max_distance: Option<usize>) -> JsValue {
         let upstream = graph::get_upstream_nodes(&roots, &self.edges, max_distance);
         let result: Vec<String> = upstream.into_iter().collect();
-        serde_wasm_bindgen::to_value(&result).unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
     }
 
     /// Get all downstream dependents from given roots
@@ -304,7 +306,12 @@ impl GraphProcessor {
     pub fn get_downstream(&self, roots: Vec<String>, max_distance: Option<usize>) -> JsValue {
         let downstream = graph::get_downstream_nodes(&roots, &self.edges, max_distance);
         let result: Vec<String> = downstream.into_iter().collect();
-        serde_wasm_bindgen::to_value(&result).unwrap_or_else(|_| JsValue::NULL)
+        serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+    }
+
+    /// Return the graph configuration supplied by the CLI (if any)
+    pub fn get_config(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.config).unwrap_or(JsValue::NULL)
     }
 }
 
@@ -344,6 +351,30 @@ mod tests {
     }
 
     #[test]
+    fn test_graph_processor_config_roundtrip() {
+        let graph_json = r#"{
+            "nodes": [
+                {"id": "module_a", "type": "module", "is_orphan": false}
+            ],
+            "edges": [],
+            "config": {
+                "include_orphans": false,
+                "include_namespaces": true,
+                "highlighted_modules": ["module_a"]
+            }
+        }"#;
+
+        let processor = GraphProcessor::new(graph_json).expect("should parse graph json");
+        let config = processor.config.clone().expect("config should be present");
+        assert!(!config.include_orphans);
+        assert!(config.include_namespaces);
+        assert_eq!(
+            config.highlighted_modules,
+            Some(vec!["module_a".to_string()])
+        );
+    }
+
+    #[test]
     fn test_compute_all_distances() {
         let graph_json = r#"{
             "nodes": [
@@ -379,6 +410,7 @@ mod tests {
 
     // Tests for filter_nodes functionality
     #[cfg(test)]
+    #[allow(unused_variables)]
     mod filter_nodes_tests {
         use super::*;
         use std::collections::HashSet;
@@ -419,7 +451,11 @@ mod tests {
         #[test]
         fn test_highlighted_only_no_filters_no_cli_highlighting() {
             let (nodes, edges) = create_test_graph();
-            let processor = GraphProcessor { nodes, edges };
+            let processor = GraphProcessor {
+                nodes,
+                edges,
+                config: None,
+            };
 
             // Apply filters directly using internal logic
             let filter_config = FilterConfig {

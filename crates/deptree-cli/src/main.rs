@@ -90,6 +90,36 @@ fn parse_module_input(
     }
 }
 
+fn read_module_list_file(
+    file_path: Option<PathBuf>,
+    list_flag: &str,
+    module_flag: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let Some(path) = file_path else {
+        return Ok(Vec::new());
+    };
+
+    if path.extension().and_then(|s| s.to_str()) == Some("py") {
+        return Err(format!(
+            "Error: {list_flag} expects a text file with module names (one per line), but got a Python file: {}\n\
+             Hint: If you want to analyze this module, use {module_flag} {} instead",
+            path.display(),
+            path.display()
+        )
+        .into());
+    }
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {} {}: {}", list_flag, path.display(), e))?;
+
+    Ok(content
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(String::from)
+        .collect())
+}
+
 #[derive(Parser, Debug)]
 #[clap(author = "Simon Zeng", version, about = "Dependency tree utilities")]
 struct Args {
@@ -198,82 +228,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 python::analyze_project(&path, Some(&actual_source_root), &exclude_scripts)?;
 
             // Collect downstream module inputs from all three sources
-            let mut downstream_inputs: Vec<String> = Vec::new();
-
-            // From comma-separated list
-            if let Some(csv) = downstream {
-                downstream_inputs.extend(csv.split(',').map(|s| s.trim().to_string()));
-            }
-
-            // From repeated --downstream-module flags
-            downstream_inputs.extend(downstream_module);
-
-            // From file
-            if let Some(file_path) = downstream_file {
-                // Check if user accidentally passed a Python source file instead of a list file
-                if file_path.extension().and_then(|s| s.to_str()) == Some("py") {
-                    return Err(format!(
-                        "Error: --downstream-file expects a text file with module names (one per line), but got a Python file: {}\n\
-                         Hint: If you want to analyze this module, use --downstream {} instead",
-                        file_path.display(),
-                        file_path.display()
-                    ).into());
-                }
-
-                let content = std::fs::read_to_string(&file_path).map_err(|e| {
-                    format!(
-                        "Failed to read downstream file {}: {}",
-                        file_path.display(),
-                        e
-                    )
-                })?;
-                downstream_inputs.extend(
-                    content
-                        .lines()
-                        .map(|line| line.trim())
-                        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                        .map(String::from),
-                );
-            }
+            let downstream_inputs: Vec<String> = downstream
+                .iter()
+                .flat_map(|csv| {
+                    csv.split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                })
+                .chain(downstream_module)
+                .chain(read_module_list_file(
+                    downstream_file,
+                    "--downstream-file",
+                    "--downstream",
+                )?)
+                .collect();
 
             // Collect upstream module inputs from all three sources
-            let mut upstream_inputs: Vec<String> = Vec::new();
-
-            // From comma-separated list
-            if let Some(csv) = upstream {
-                upstream_inputs.extend(csv.split(',').map(|s| s.trim().to_string()));
-            }
-
-            // From repeated --upstream-module flags
-            upstream_inputs.extend(upstream_module);
-
-            // From file
-            if let Some(file_path) = upstream_file {
-                // Check if user accidentally passed a Python source file instead of a list file
-                if file_path.extension().and_then(|s| s.to_str()) == Some("py") {
-                    return Err(format!(
-                        "Error: --upstream-file expects a text file with module names (one per line), but got a Python file: {}\n\
-                         Hint: Use --upstream {} instead",
-                        file_path.display(),
-                        file_path.display()
-                    ).into());
-                }
-
-                let content = std::fs::read_to_string(&file_path).map_err(|e| {
-                    format!(
-                        "Failed to read upstream file {}: {}",
-                        file_path.display(),
-                        e
-                    )
-                })?;
-                upstream_inputs.extend(
-                    content
-                        .lines()
-                        .map(|line| line.trim())
-                        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-                        .map(String::from),
-                );
-            }
+            let upstream_inputs: Vec<String> = upstream
+                .iter()
+                .flat_map(|csv| {
+                    csv.split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                })
+                .chain(upstream_module)
+                .chain(read_module_list_file(
+                    upstream_file,
+                    "--upstream-file",
+                    "--upstream",
+                )?)
+                .collect();
 
             // Parse output format
             let output_format = match format.as_str() {

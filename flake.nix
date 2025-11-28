@@ -177,6 +177,7 @@
               just
               rustc
               cargo
+              clippy
               cargo-watch
               cargo-insta
               rust-analyzer

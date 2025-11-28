@@ -5,7 +5,6 @@
 
 use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::visit::{Bfs, Reversed};
 use ruff_python_parser::parse_module;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -256,6 +255,62 @@ fn sanitize_mermaid_id(name: &str) -> String {
     name.replace('.', "_")
 }
 
+struct DotNodeSpec {
+    name: String,
+    attrs: String,
+}
+
+impl DotNodeSpec {
+    fn render(&self, indent: &str) -> String {
+        let attrs = if self.attrs.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", self.attrs)
+        };
+        format!("{indent}    \"{}\"{attrs};\n", self.name)
+    }
+}
+
+#[derive(Clone)]
+enum MermaidShape {
+    Module,
+    Script,
+    Namespace,
+}
+
+#[derive(Clone)]
+struct MermaidNodeSpec {
+    id: String,
+    label: String,
+    shape: MermaidShape,
+}
+
+impl MermaidNodeSpec {
+    fn render_definition(&self, indent: &str, highlighted: bool) -> String {
+        let base = match self.shape {
+            MermaidShape::Script => format!("{indent}    {}[\"{}\"]\n", self.id, self.label),
+            MermaidShape::Namespace => {
+                format!("{indent}    {}{{{{\"{}\"}}}} \n", self.id, self.label)
+            }
+            MermaidShape::Module => format!("{indent}    {}(\"{}\")\n", self.id, self.label),
+        };
+
+        if highlighted {
+            format!("{base}{indent}    class {} highlighted\n", self.id)
+        } else {
+            base
+        }
+    }
+
+    fn render_inline(&self) -> String {
+        match self.shape {
+            MermaidShape::Script => format!("{}[\"{}\"]", self.id, self.label),
+            MermaidShape::Namespace => format!("{}{{{{\"{}\"}}}}", self.id, self.label),
+            MermaidShape::Module => format!("{}(\"{}\")", self.id, self.label),
+        }
+    }
+}
+
 /// Graph node for frontend data model
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
@@ -300,74 +355,135 @@ enum CytoscapeMode<'a> {
     Highlighted(&'a HashSet<ModulePath>),
 }
 
-/// Represents a node in the namespace hierarchy tree
-#[derive(Debug, Clone)]
-struct NamespaceNode {
-    /// The full module path for this namespace (e.g., ["foo", "bar"])
-    path: Vec<String>,
-
-    /// Direct children of this namespace
-    children: HashMap<String, NamespaceNode>,
-
-    /// Whether this namespace has a corresponding ModulePath in the graph
-    is_concrete_module: bool,
-
-    /// Whether this namespace should be rendered as a group (2+ children)
-    should_group: bool,
+/// Selection mode for rendering/filtering
+enum NodeSelection<'a> {
+    /// All nodes
+    Full,
+    /// Only nodes in the provided set
+    Filtered(&'a HashSet<ModulePath>),
+    /// All nodes, but keep track of which are highlighted
+    Highlighted,
 }
 
-impl NamespaceNode {
-    /// Create a new namespace node with the given path
+/// Represents a node in the namespace hierarchy tree
+#[derive(Debug, Clone)]
+struct NamespaceTree {
+    /// Full module path for this namespace (e.g., ["foo", "bar"])
+    path: Vec<String>,
+    /// Whether this namespace corresponds to a concrete module
+    is_concrete: bool,
+    /// Child namespaces/modules
+    children: Vec<NamespaceTree>,
+    /// Whether this namespace should render as a group (2+ children)
+    grouped: bool,
+}
+
+impl NamespaceTree {
     fn new(path: Vec<String>) -> Self {
         Self {
             path,
-            children: HashMap::new(),
-            is_concrete_module: false,
-            should_group: false,
+            is_concrete: false,
+            children: Vec::new(),
+            grouped: false,
+        }
+    }
+
+    fn insert(&mut self, parts: &[String]) {
+        if parts.is_empty() {
+            self.is_concrete = true;
+            return;
+        }
+
+        let child_name = &parts[0];
+        let mut child_path = self.path.clone();
+        child_path.push(child_name.clone());
+
+        let child = self
+            .children
+            .iter_mut()
+            .find(|c| c.path.last() == Some(child_name));
+
+        if let Some(existing) = child {
+            existing.insert(&parts[1..]);
+        } else {
+            let mut new_child = NamespaceTree::new(child_path);
+            new_child.insert(&parts[1..]);
+            self.children.push(new_child);
+        }
+    }
+
+    fn finalize(&mut self) {
+        for child in &mut self.children {
+            child.finalize();
+        }
+        self.children.sort_by(|a, b| a.path.cmp(&b.path));
+        self.grouped = !self.path.is_empty() && self.children.len() >= 2;
+    }
+
+    fn find(&self, path: &[String]) -> Option<&NamespaceTree> {
+        if path.is_empty() {
+            return Some(self);
+        }
+
+        self.children
+            .iter()
+            .find(|c| c.path.last() == path.first())
+            .and_then(|child| child.find(&path[1..]))
+    }
+
+    fn is_group_only(&self, path: &[String]) -> bool {
+        self.find(path)
+            .map(|node| node.grouped && node.is_concrete)
+            .unwrap_or(false)
+    }
+
+    fn direct_concrete_children(&self) -> Vec<ModulePath> {
+        self.children
+            .iter()
+            .filter(|c| c.is_concrete)
+            .map(|c| ModulePath(c.path.clone()))
+            .collect()
+    }
+
+    fn child_groups(&self) -> impl Iterator<Item = &NamespaceTree> {
+        self.children.iter()
+    }
+
+    fn collect_leaf_descendants(&self, acc: &mut Vec<ModulePath>) {
+        if self.children.is_empty() {
+            if self.is_concrete {
+                acc.push(ModulePath(self.path.clone()));
+            }
+            return;
+        }
+
+        for child in &self.children {
+            child.collect_leaf_descendants(acc);
+        }
+    }
+
+    fn collect_ungrouped_modules(&self, acc: &mut Vec<ModulePath>) {
+        if self.grouped {
+            for child in &self.children {
+                child.collect_ungrouped_modules(acc);
+            }
+            return;
+        }
+
+        for child in &self.children {
+            if child.is_concrete {
+                acc.push(ModulePath(child.path.clone()));
+            }
+            child.collect_ungrouped_modules(acc);
         }
     }
 }
 
-/// Root of the namespace hierarchy
+/// Root namespace trees for internal modules and scripts
 #[derive(Debug)]
-struct NamespaceHierarchy {
-    /// Root for internal modules
-    internal_root: NamespaceNode,
-
-    /// Root for scripts (files outside source root)
-    script_root: NamespaceNode,
-}
-
-/// Helper function to insert a module into the namespace tree
-/// All modules inserted are concrete (exist in the graph), so we mark the leaf as concrete
-fn insert_into_tree(node: &mut NamespaceNode, path: &[String]) {
-    if path.is_empty() {
-        // Reached the module itself - mark it as concrete
-        node.is_concrete_module = true;
-        return;
-    }
-
-    let mut current_path = node.path.clone();
-    current_path.push(path[0].clone());
-
-    let child = node
-        .children
-        .entry(path[0].clone())
-        .or_insert_with(|| NamespaceNode::new(current_path));
-
-    // Continue down the path
-    insert_into_tree(child, &path[1..]);
-}
-
-/// Helper function to mark which namespace nodes should become groups
-fn mark_grouping_nodes(node: &mut NamespaceNode) {
-    // Recursively process children first
-    for child in node.children.values_mut() {
-        mark_grouping_nodes(child);
-    }
-
-    // Group if 2+ children
-    node.should_group = node.children.len() >= 2;
+struct NamespaceForest {
+    internal: NamespaceTree,
+    scripts: NamespaceTree,
 }
 
 /// The dependency graph of Python modules
@@ -398,6 +514,88 @@ impl DependencyGraph {
         self.scripts.contains(module)
     }
 
+    fn select_visible_nodes(
+        &self,
+        selection: NodeSelection,
+        include_orphans: bool,
+        include_namespace_packages: bool,
+    ) -> Vec<NodeIndex> {
+        let mut nodes: Vec<_> = self.graph.node_indices().collect();
+        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
+
+        nodes
+            .into_iter()
+            .filter(|idx| match selection {
+                NodeSelection::Full | NodeSelection::Highlighted => true,
+                NodeSelection::Filtered(set) => set.contains(&self.graph[*idx]),
+            })
+            .filter(|idx| {
+                include_namespace_packages || !self.is_namespace_package(&self.graph[*idx])
+            })
+            .filter(|idx| {
+                include_orphans
+                    || self
+                        .graph
+                        .neighbors_directed(*idx, Direction::Incoming)
+                        .count()
+                        > 0
+                    || self
+                        .graph
+                        .neighbors_directed(*idx, Direction::Outgoing)
+                        .count()
+                        > 0
+            })
+            .collect()
+    }
+
+    fn collect_edges(
+        &self,
+        node_set: &HashSet<NodeIndex>,
+        include_namespace_packages: bool,
+    ) -> Vec<(String, String)> {
+        let mut edges = Vec::new();
+
+        if !include_namespace_packages {
+            for from_idx in self.graph.node_indices() {
+                if !node_set.contains(&from_idx) {
+                    continue;
+                }
+                let from_module = &self.graph[from_idx];
+
+                for to_idx in self.graph.neighbors(from_idx) {
+                    let to_module = &self.graph[to_idx];
+
+                    if self.is_namespace_package(to_module) {
+                        let mut visited = HashSet::new();
+                        self.find_transitive_non_namespace_targets(
+                            to_idx,
+                            &mut visited,
+                            node_set,
+                            &mut |target_idx| {
+                                let target_module = &self.graph[target_idx];
+                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
+                            },
+                        );
+                    } else if node_set.contains(&to_idx) {
+                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
+                    }
+                }
+            }
+        } else {
+            edges = self
+                .graph
+                .edge_indices()
+                .filter_map(|e| self.graph.edge_endpoints(e))
+                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
+                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
+                .collect();
+        }
+
+        edges.sort();
+        edges.dedup();
+        edges
+    }
+
     /// Mark a module as a namespace package
     pub fn mark_as_namespace_package(&mut self, module: &ModulePath) {
         self.namespace_packages.insert(module.clone());
@@ -426,64 +624,38 @@ impl DependencyGraph {
         self.graph.add_edge(from_idx, to_idx, ());
     }
 
-    /// Build the complete namespace hierarchy from graph nodes
-    fn build_namespace_hierarchy(&self, visible_nodes: &[NodeIndex]) -> NamespaceHierarchy {
-        let mut internal_root = NamespaceNode::new(vec![]);
-        let mut script_root = NamespaceNode::new(vec![]);
+    /// Build the complete namespace forest from graph nodes
+    fn build_namespace_forest(&self, visible_nodes: &[NodeIndex]) -> NamespaceForest {
+        let mut internal = NamespaceTree::new(vec![]);
+        let mut scripts = NamespaceTree::new(vec![]);
 
-        // Insert only visible nodes into appropriate tree
         for idx in visible_nodes {
             let module_path = &self.graph[*idx];
-            let root = if self.is_script(module_path) {
-                &mut script_root
+            let target = if self.is_script(module_path) {
+                &mut scripts
             } else {
-                &mut internal_root
+                &mut internal
             };
-            insert_into_tree(root, &module_path.0);
+            target.insert(&module_path.0);
         }
 
-        // Mark which nodes should be groups (2+ children)
-        mark_grouping_nodes(&mut internal_root);
-        mark_grouping_nodes(&mut script_root);
+        internal.finalize();
+        scripts.finalize();
 
-        NamespaceHierarchy {
-            internal_root,
-            script_root,
-        }
+        NamespaceForest { internal, scripts }
     }
 
-    /// Find a namespace node in the hierarchy by module path
-    fn find_namespace_node<'a>(
-        node: &'a NamespaceNode,
-        path: &[String],
-    ) -> Option<&'a NamespaceNode> {
-        if path.is_empty() {
-            return Some(node);
-        }
-
-        if let Some(child) = node.children.get(&path[0]) {
-            Self::find_namespace_node(child, &path[1..])
+    fn tree_for<'a>(&self, forest: &'a NamespaceForest, module: &ModulePath) -> &'a NamespaceTree {
+        if self.is_script(module) {
+            &forest.scripts
         } else {
-            None
+            &forest.internal
         }
     }
 
     /// Check if a module is a group-only namespace (has children and should only appear as group)
-    fn is_group_only_namespace(&self, hierarchy: &NamespaceHierarchy, module: &ModulePath) -> bool {
-        // Determine which root to use
-        let root = if self.is_script(module) {
-            &hierarchy.script_root
-        } else {
-            &hierarchy.internal_root
-        };
-
-        // Find the namespace node for this module
-        if let Some(node) = Self::find_namespace_node(root, &module.0) {
-            // It's group-only if it should be grouped and is a concrete module
-            node.should_group && node.is_concrete_module
-        } else {
-            false
-        }
+    fn is_group_only_namespace(&self, forest: &NamespaceForest, module: &ModulePath) -> bool {
+        self.tree_for(forest, module).is_group_only(&module.0)
     }
 
     /// Generate compound nodes from namespace hierarchy for Cytoscape output
@@ -492,8 +664,7 @@ impl DependencyGraph {
     /// - pure_parent_nodes: Pure parent nodes (namespace groups that are not concrete modules)
     fn generate_compound_nodes(
         &self,
-        hierarchy: &NamespaceHierarchy,
-        visible_indices: &HashSet<NodeIndex>,
+        forest: &NamespaceForest,
         include_namespace_packages: bool,
     ) -> (HashMap<String, String>, Vec<GraphNode>) {
         let mut leaf_parent_map = HashMap::new();
@@ -501,9 +672,8 @@ impl DependencyGraph {
 
         // Process internal modules
         self.collect_compound_nodes_recursive(
-            &hierarchy.internal_root,
+            &forest.internal,
             None,
-            visible_indices,
             include_namespace_packages,
             &mut leaf_parent_map,
             &mut parent_nodes,
@@ -511,9 +681,8 @@ impl DependencyGraph {
 
         // Process scripts
         self.collect_compound_nodes_recursive(
-            &hierarchy.script_root,
+            &forest.scripts,
             None,
-            visible_indices,
             include_namespace_packages,
             &mut leaf_parent_map,
             &mut parent_nodes,
@@ -523,22 +692,21 @@ impl DependencyGraph {
     }
 
     /// Recursively collect compound node relationships from namespace hierarchy
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_compound_nodes_recursive(
         &self,
-        node: &NamespaceNode,
+        node: &NamespaceTree,
         parent_id: Option<String>,
-        visible_indices: &HashSet<NodeIndex>,
         include_namespace_packages: bool,
         leaf_parent_map: &mut HashMap<String, String>,
         parent_nodes: &mut Vec<GraphNode>,
     ) {
         // Root node - process children without creating a parent
         if node.path.is_empty() {
-            for child in node.children.values() {
+            for child in node.child_groups() {
                 self.collect_compound_nodes_recursive(
                     child,
                     None,
-                    visible_indices,
                     include_namespace_packages,
                     leaf_parent_map,
                     parent_nodes,
@@ -550,10 +718,10 @@ impl DependencyGraph {
         let current_id = node.path.join(".");
 
         // If this node should group (2+ children), create a parent node
-        if node.should_group {
+        if node.grouped {
             // Create parent node only if it's NOT a concrete module
             // (if it's concrete, it will be a leaf node too - hybrid node)
-            if !node.is_concrete_module {
+            if !node.is_concrete {
                 // Pure parent node (namespace group only)
                 parent_nodes.push(GraphNode {
                     id: current_id.clone(),
@@ -572,11 +740,10 @@ impl DependencyGraph {
             }
 
             // Recursively process children with current node as parent
-            for child in node.children.values() {
+            for child in node.child_groups() {
                 self.collect_compound_nodes_recursive(
                     child,
                     Some(current_id.clone()),
-                    visible_indices,
                     include_namespace_packages,
                     leaf_parent_map,
                     parent_nodes,
@@ -585,7 +752,7 @@ impl DependencyGraph {
         } else {
             // Not a group - just a leaf or intermediate node
             // If concrete, it will be added as leaf later
-            if node.is_concrete_module {
+            if node.is_concrete {
                 // Record parent relationship
                 if let Some(pid) = parent_id.clone() {
                     leaf_parent_map.insert(current_id, pid);
@@ -593,11 +760,10 @@ impl DependencyGraph {
             }
 
             // Continue recursively for children (propagate parent)
-            for child in node.children.values() {
+            for child in node.child_groups() {
                 self.collect_compound_nodes_recursive(
                     child,
                     parent_id.clone(),
-                    visible_indices,
                     include_namespace_packages,
                     leaf_parent_map,
                     parent_nodes,
@@ -609,47 +775,17 @@ impl DependencyGraph {
     /// Get all visible leaf descendants of a namespace (for edge redirection)
     fn get_visible_leaf_descendants(
         &self,
-        hierarchy: &NamespaceHierarchy,
+        forest: &NamespaceForest,
         module: &ModulePath,
-        visible_indices: &HashSet<NodeIndex>,
     ) -> Vec<ModulePath> {
-        let root = if self.is_script(module) {
-            &hierarchy.script_root
-        } else {
-            &hierarchy.internal_root
-        };
-
-        if let Some(node) = Self::find_namespace_node(root, &module.0) {
-            let mut descendants = Vec::new();
-            self.collect_leaf_descendants(node, visible_indices, &mut descendants);
-            descendants
-        } else {
-            vec![]
-        }
-    }
-
-    /// Helper to collect all leaf descendants from a namespace node
-    fn collect_leaf_descendants(
-        &self,
-        node: &NamespaceNode,
-        visible_indices: &HashSet<NodeIndex>,
-        descendants: &mut Vec<ModulePath>,
-    ) {
-        // If this node has no children, check if it's in visible set
-        if node.children.is_empty() {
-            let module_path = ModulePath(node.path.clone());
-            if let Some(&idx) = self.node_indices.get(&module_path) {
-                if visible_indices.contains(&idx) {
-                    descendants.push(module_path);
-                }
-            }
-            return;
-        }
-
-        // Recursively collect from children
-        for child in node.children.values() {
-            self.collect_leaf_descendants(child, visible_indices, descendants);
-        }
+        self.tree_for(forest, module)
+            .find(&module.0)
+            .map(|node| {
+                let mut descendants = Vec::new();
+                node.collect_leaf_descendants(&mut descendants);
+                descendants
+            })
+            .unwrap_or_default()
     }
 
     /// Helper function to find all non-namespace package targets reachable through namespace packages
@@ -689,147 +825,146 @@ impl DependencyGraph {
         }
     }
 
-    /// Helper to recursively render DOT subgraphs for namespace groups
-    fn sorted_direct_children(
+    fn dot_spec_for_module(
         &self,
-        node: &NamespaceNode,
-        visible_indices: &HashSet<NodeIndex>,
-    ) -> Vec<NodeIndex> {
-        let mut children: Vec<NodeIndex> = visible_indices
-            .iter()
-            .copied()
-            .filter(|idx| {
-                let module = &self.graph[*idx];
-                let module_path = &module.0;
-                module_path.len() == node.path.len() + 1 && module_path.starts_with(&node.path)
-            })
-            .collect();
+        module: &ModulePath,
+        include_namespace_packages: bool,
+        is_highlighted: bool,
+    ) -> Option<DotNodeSpec> {
+        if self.is_namespace_package(module) && !include_namespace_packages {
+            return None;
+        }
 
-        children.sort_by_key(|idx| self.graph[*idx].to_dotted());
-        children
+        let attrs = if self.is_script(module) {
+            if is_highlighted {
+                "[shape=box, fillcolor=lightblue, style=filled]"
+            } else {
+                "[shape=box]"
+            }
+        } else if self.is_namespace_package(module) {
+            if is_highlighted {
+                "[shape=hexagon, fillcolor=lightblue, style=filled]"
+            } else {
+                "[shape=hexagon, style=dashed]"
+            }
+        } else if is_highlighted {
+            "[fillcolor=lightblue, style=filled]"
+        } else {
+            ""
+        };
+
+        Some(DotNodeSpec {
+            name: module.to_dotted(),
+            attrs: attrs.to_string(),
+        })
     }
 
-    /// Helper to recursively render DOT subgraphs for namespace groups
-    fn render_dot_subgraph(
+    fn dot_spec_map(
         &self,
-        node: &NamespaceNode,
-        hierarchy: &NamespaceHierarchy,
-        visible_indices: &HashSet<NodeIndex>,
+        nodes: &[NodeIndex],
+        include_namespace_packages: bool,
+        highlight_set: Option<&HashSet<ModulePath>>,
+    ) -> HashMap<String, DotNodeSpec> {
+        nodes
+            .iter()
+            .filter_map(|idx| {
+                let module = &self.graph[*idx];
+                let is_highlighted = highlight_set
+                    .map(|set| set.contains(module))
+                    .unwrap_or(false);
+
+                self.dot_spec_for_module(module, include_namespace_packages, is_highlighted)
+                    .map(|spec| (spec.name.clone(), spec))
+            })
+            .collect()
+    }
+
+    /// Helper to recursively render DOT subgraphs for namespace groups (with optional highlighting)
+    #[allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
+    fn render_dot_subgraph_generic(
+        &self,
+        node: &NamespaceTree,
+        forest: &NamespaceForest,
+        highlight_set: Option<&HashSet<ModulePath>>,
+        include_namespace_packages: bool,
+        specs: &HashMap<String, DotNodeSpec>,
+        cluster_root: bool,
         indent_level: usize,
+        is_script_root: bool,
         output: &mut String,
     ) {
         let indent = "    ".repeat(indent_level);
 
-        // Root node should never create a cluster, just process children
-        if node.path.is_empty() {
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_dot_subgraph(
-                        child,
-                        hierarchy,
-                        visible_indices,
-                        indent_level,
-                        output,
-                    );
-                }
-            }
+        if node.children.is_empty() && !node.is_concrete {
             return;
         }
 
-        if node.should_group {
-            let cluster_name = node.path.join("_");
-            let label = node.path.join(".");
+        let has_root_content = !node.path.is_empty()
+            || !node.direct_concrete_children().is_empty()
+            || (!is_script_root && node.children.iter().any(|c| c.grouped));
 
-            output.push_str(&format!("{}subgraph cluster_{} {{\n", indent, cluster_name));
-            output.push_str(&format!("{}    label = \"{}\";\n", indent, label));
+        if (node.grouped || (cluster_root && node.path.is_empty() && has_root_content))
+            && (cluster_root || !node.path.is_empty())
+        {
+            let cluster_name = if node.path.is_empty() {
+                "root".to_string()
+            } else {
+                node.path.join("_")
+            };
+            let label = if node.path.is_empty() {
+                "root".to_string()
+            } else {
+                node.path.join(".")
+            };
+
+            output.push_str(&format!("{indent}subgraph cluster_{cluster_name} {{\n"));
+            output.push_str(&format!("{indent}    label = \"{label}\";\n"));
 
             // Find all direct children modules (leaf nodes at this level)
-            for idx in self.sorted_direct_children(node, visible_indices) {
-                let module = &self.graph[idx];
-
-                // Skip group-only namespaces (they appear as group labels only)
-                if self.is_group_only_namespace(hierarchy, module) {
+            for module in node.direct_concrete_children() {
+                if self.is_group_only_namespace(forest, &module) {
                     continue;
                 }
-
-                // This is a direct child - render it
-                if self.is_script(module) {
-                    output.push_str(&format!(
-                        "{}    \"{}\" [shape=box];\n",
-                        indent,
-                        module.to_dotted()
-                    ));
-                } else if self.is_namespace_package(module) {
-                    output.push_str(&format!(
-                        "{}    \"{}\" [shape=hexagon, style=dashed];\n",
-                        indent,
-                        module.to_dotted()
-                    ));
-                } else {
-                    output.push_str(&format!("{}    \"{}\";\n", indent, module.to_dotted()));
+                if let Some(spec) = specs.get(&module.to_dotted()) {
+                    output.push_str(&spec.render(&indent));
                 }
             }
 
-            // Recursively render child groups
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_dot_subgraph(
-                        child,
-                        hierarchy,
-                        visible_indices,
-                        indent_level + 1,
-                        output,
-                    );
-                }
+            for child in node.child_groups() {
+                self.render_dot_subgraph_generic(
+                    child,
+                    forest,
+                    highlight_set,
+                    include_namespace_packages,
+                    specs,
+                    cluster_root,
+                    indent_level + 1,
+                    is_script_root,
+                    output,
+                );
             }
 
-            output.push_str(&format!("{}}}\n", indent));
+            output.push_str(&format!("{indent}}}\n"));
         } else {
-            // Not a group - render direct children recursively
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_dot_subgraph(
-                        child,
-                        hierarchy,
-                        visible_indices,
-                        indent_level,
-                        output,
-                    );
-                }
+            for child in node.child_groups() {
+                self.render_dot_subgraph_generic(
+                    child,
+                    forest,
+                    highlight_set,
+                    include_namespace_packages,
+                    specs,
+                    cluster_root,
+                    indent_level,
+                    is_script_root,
+                    output,
+                );
             }
         }
     }
 
     /// Helper to collect modules that should not be grouped (don't belong to any group)
-    fn collect_ungrouped_modules(
-        &self,
-        node: &NamespaceNode,
-        visible_indices: &HashSet<NodeIndex>,
-        ungrouped: &mut Vec<NodeIndex>,
-    ) {
-        if node.should_group {
-            // This node forms a group - don't collect its children as ungrouped
-            // Recursively check grandchildren
-            for child in node.children.values() {
-                self.collect_ungrouped_modules(child, visible_indices, ungrouped);
-            }
-        } else {
-            // Not a group - collect direct leaf children
-            for idx in self.sorted_direct_children(node, visible_indices) {
-                ungrouped.push(idx);
-            }
-
-            // Recursively process children
-            for child in node.children.values() {
-                self.collect_ungrouped_modules(child, visible_indices, ungrouped);
-            }
-        }
+    fn collect_ungrouped_modules(&self, node: &NamespaceTree, ungrouped: &mut Vec<ModulePath>) {
+        node.collect_ungrouped_modules(ungrouped);
     }
 
     /// Convert the graph to Graphviz DOT format
@@ -839,134 +974,56 @@ impl DependencyGraph {
         output.push_str(
             "    // Note: Scripts (files outside source root) are shown with box shape\n",
         );
+        let nodes = self.select_visible_nodes(
+            NodeSelection::Full,
+            include_orphans,
+            include_namespace_packages,
+        );
+        let forest = self.build_namespace_forest(&nodes);
+        let specs = self.dot_spec_map(&nodes, include_namespace_packages, None);
 
-        // Collect and sort nodes for deterministic output
-        let mut nodes: Vec<_> = self.graph.node_indices().collect();
-        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
-
-        // Filter out namespace packages unless explicitly requested
-        if !include_namespace_packages {
-            nodes.retain(|idx| {
-                let module = &self.graph[*idx];
-                !self.is_namespace_package(module)
-            });
-        }
-
-        // Filter out orphan nodes unless explicitly requested
-        if !include_orphans {
-            nodes.retain(|idx| {
-                let has_incoming = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Incoming)
-                    .count()
-                    > 0;
-                let has_outgoing = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Outgoing)
-                    .count()
-                    > 0;
-                has_incoming || has_outgoing
-            });
-        }
-
-        // Build namespace hierarchy from visible nodes only
-        let hierarchy = self.build_namespace_hierarchy(&nodes);
-        let visible_indices: HashSet<NodeIndex> = nodes.iter().copied().collect();
-
-        // Render groups recursively (internal modules)
-        self.render_dot_subgraph(
-            &hierarchy.internal_root,
-            &hierarchy,
-            &visible_indices,
+        self.render_dot_subgraph_generic(
+            &forest.internal,
+            &forest,
+            None,
+            include_namespace_packages,
+            &specs,
+            false,
             1,
+            false,
             &mut output,
         );
 
-        // Render groups recursively (scripts)
-        self.render_dot_subgraph(
-            &hierarchy.script_root,
-            &hierarchy,
-            &visible_indices,
+        self.render_dot_subgraph_generic(
+            &forest.scripts,
+            &forest,
+            None,
+            include_namespace_packages,
+            &specs,
+            false,
             1,
+            true,
             &mut output,
         );
 
         // Collect and render ungrouped nodes (nodes not in any group)
-        let mut ungrouped = Vec::new();
-        self.collect_ungrouped_modules(&hierarchy.internal_root, &visible_indices, &mut ungrouped);
-        self.collect_ungrouped_modules(&hierarchy.script_root, &visible_indices, &mut ungrouped);
+        let mut ungrouped: Vec<ModulePath> = Vec::new();
+        self.collect_ungrouped_modules(&forest.internal, &mut ungrouped);
+        self.collect_ungrouped_modules(&forest.scripts, &mut ungrouped);
 
         // Sort ungrouped nodes for deterministic output
-        ungrouped.sort_by_key(|idx| self.graph[*idx].to_dotted());
+        ungrouped.sort_by_key(|module| module.to_dotted());
 
-        for idx in &ungrouped {
-            let module = &self.graph[*idx];
-
-            // Skip group-only namespaces
-            if self.is_group_only_namespace(&hierarchy, module) {
-                continue;
-            }
-
-            if self.is_script(module) {
-                output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
-            } else if self.is_namespace_package(module) && include_namespace_packages {
-                output.push_str(&format!(
-                    "    \"{}\" [shape=hexagon, style=dashed];\n",
-                    module.to_dotted()
-                ));
-            } else {
-                output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
+        for module in &ungrouped {
+            if !self.is_group_only_namespace(&forest, module) {
+                if let Some(spec) = specs.get(&module.to_dotted()) {
+                    output.push_str(&spec.render(""));
+                }
             }
         }
 
-        // Collect edges, with transitive edge preservation for namespace packages
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
-        let mut edges: Vec<(String, String)> = Vec::new();
-
-        if !include_namespace_packages {
-            // When excluding namespace packages, we need to create transitive edges
-            // For each edge in the original graph, if either endpoint is a namespace package,
-            // we need to find the transitive path through namespace packages
-            for from_idx in self.graph.node_indices() {
-                let from_module = &self.graph[from_idx];
-
-                // Skip if this node is filtered out
-                if !node_set.contains(&from_idx) {
-                    continue;
-                }
-
-                // Find all reachable non-namespace nodes through namespace packages
-                for to_idx in self.graph.neighbors(from_idx) {
-                    let to_module = &self.graph[to_idx];
-
-                    if self.is_namespace_package(to_module) {
-                        // This is a namespace package, traverse through it
-                        let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(
-                            to_idx,
-                            &mut visited,
-                            &node_set,
-                            &mut |target_idx| {
-                                let target_module = &self.graph[target_idx];
-                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                            },
-                        );
-                    } else if node_set.contains(&to_idx) {
-                        // Direct edge to a non-namespace package
-                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
-                    }
-                }
-            }
-        } else {
-            // Include all edges between visible nodes
-            edges = self
-                .graph
-                .edge_indices()
-                .filter_map(|e| self.graph.edge_endpoints(e))
-                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
-                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-                .collect();
-        }
+        let mut edges = self.collect_edges(&node_set, include_namespace_packages);
 
         // Transform edges to redirect group-only namespaces to their children
         let mut transformed_edges = Vec::new();
@@ -974,8 +1031,8 @@ impl DependencyGraph {
             let from_module = ModulePath(from_name.split('.').map(String::from).collect());
             let to_module = ModulePath(to_name.split('.').map(String::from).collect());
 
-            let from_is_group_only = self.is_group_only_namespace(&hierarchy, &from_module);
-            let to_is_group_only = self.is_group_only_namespace(&hierarchy, &to_module);
+            let from_is_group_only = self.is_group_only_namespace(&forest, &from_module);
+            let to_is_group_only = self.is_group_only_namespace(&forest, &to_module);
 
             match (from_is_group_only, to_is_group_only) {
                 (false, false) => {
@@ -984,32 +1041,22 @@ impl DependencyGraph {
                 }
                 (true, false) => {
                     // From is group-only: create edges from all leaf descendants
-                    let descendants = self.get_visible_leaf_descendants(
-                        &hierarchy,
-                        &from_module,
-                        &visible_indices,
-                    );
+                    let descendants = self.get_visible_leaf_descendants(&forest, &from_module);
                     for descendant in descendants {
                         transformed_edges.push((descendant.to_dotted(), to_name.clone()));
                     }
                 }
                 (false, true) => {
                     // To is group-only: create edges to all leaf descendants
-                    let descendants =
-                        self.get_visible_leaf_descendants(&hierarchy, &to_module, &visible_indices);
+                    let descendants = self.get_visible_leaf_descendants(&forest, &to_module);
                     for descendant in descendants {
                         transformed_edges.push((from_name.clone(), descendant.to_dotted()));
                     }
                 }
                 (true, true) => {
                     // Both are group-only: cartesian product of descendants
-                    let from_descendants = self.get_visible_leaf_descendants(
-                        &hierarchy,
-                        &from_module,
-                        &visible_indices,
-                    );
-                    let to_descendants =
-                        self.get_visible_leaf_descendants(&hierarchy, &to_module, &visible_indices);
+                    let from_descendants = self.get_visible_leaf_descendants(&forest, &from_module);
+                    let to_descendants = self.get_visible_leaf_descendants(&forest, &to_module);
                     for from_desc in &from_descendants {
                         for to_desc in &to_descendants {
                             transformed_edges.push((from_desc.to_dotted(), to_desc.to_dotted()));
@@ -1027,120 +1074,11 @@ impl DependencyGraph {
 
         // Add edges
         for (from_name, to_name) in edges {
-            output.push_str(&format!("    \"{}\" -> \"{}\";\n", from_name, to_name));
+            output.push_str(&format!("    \"{from_name}\" -> \"{to_name}\";\n"));
         }
 
         output.push_str("}\n");
         output
-    }
-
-    /// Helper to recursively render DOT subgraphs with highlighting
-    fn render_dot_subgraph_highlighted(
-        &self,
-        node: &NamespaceNode,
-        visible_indices: &HashSet<NodeIndex>,
-        highlight_set: &HashSet<ModulePath>,
-        include_namespace_packages: bool,
-        indent_level: usize,
-        output: &mut String,
-    ) {
-        let indent = "    ".repeat(indent_level);
-
-        if node.should_group {
-            let cluster_name = if node.path.is_empty() {
-                "root".to_string()
-            } else {
-                node.path.join("_")
-            };
-
-            let label = if node.path.is_empty() {
-                "root".to_string()
-            } else {
-                node.path.join(".")
-            };
-
-            output.push_str(&format!("{}subgraph cluster_{} {{\n", indent, cluster_name));
-            output.push_str(&format!("{}    label = \"{}\";\n", indent, label));
-
-            // Find and render direct children modules
-            for idx in self.sorted_direct_children(node, visible_indices) {
-                let module = &self.graph[idx];
-                let is_highlighted = highlight_set.contains(module);
-                let is_ns_pkg = self.is_namespace_package(module);
-
-                if self.is_script(module) {
-                    if is_highlighted {
-                        output.push_str(&format!(
-                            "{}    \"{}\" [shape=box, fillcolor=lightblue, style=filled];\n",
-                            indent,
-                            module.to_dotted()
-                        ));
-                    } else {
-                        output.push_str(&format!(
-                            "{}    \"{}\" [shape=box];\n",
-                            indent,
-                            module.to_dotted()
-                        ));
-                    }
-                } else if is_ns_pkg && include_namespace_packages {
-                    if is_highlighted {
-                        output.push_str(&format!(
-                            "{}    \"{}\" [shape=hexagon, fillcolor=lightblue, style=filled];\n",
-                            indent,
-                            module.to_dotted()
-                        ));
-                    } else {
-                        output.push_str(&format!(
-                            "{}    \"{}\" [shape=hexagon, style=dashed];\n",
-                            indent,
-                            module.to_dotted()
-                        ));
-                    }
-                } else if is_highlighted {
-                    output.push_str(&format!(
-                        "{}    \"{}\" [fillcolor=lightblue, style=filled];\n",
-                        indent,
-                        module.to_dotted()
-                    ));
-                } else {
-                    output.push_str(&format!("{}    \"{}\";\n", indent, module.to_dotted()));
-                }
-            }
-
-            // Recursively render child groups
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_dot_subgraph_highlighted(
-                        child,
-                        visible_indices,
-                        highlight_set,
-                        include_namespace_packages,
-                        indent_level + 1,
-                        output,
-                    );
-                }
-            }
-
-            output.push_str(&format!("{}}}\n", indent));
-        } else {
-            // Not a group - render children recursively
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_dot_subgraph_highlighted(
-                        child,
-                        visible_indices,
-                        highlight_set,
-                        include_namespace_packages,
-                        indent_level,
-                        output,
-                    );
-                }
-            }
-        }
     }
 
     /// Convert the full graph to DOT format with highlighted nodes
@@ -1157,165 +1095,128 @@ impl DependencyGraph {
             "    // Note: Scripts (files outside source root) are shown with box shape\n",
         );
         output.push_str("    // Note: Highlighted nodes are shown with light blue background\n");
-
-        // Collect and sort nodes for deterministic output
-        let mut nodes: Vec<_> = self.graph.node_indices().collect();
-        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
-
-        // Filter out namespace packages unless explicitly requested
-        if !include_namespace_packages {
-            nodes.retain(|idx| {
-                let module = &self.graph[*idx];
-                !self.is_namespace_package(module)
-            });
-        }
-
-        // Filter out orphan nodes unless explicitly requested
-        if !include_orphans {
-            nodes.retain(|idx| {
-                let has_incoming = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Incoming)
-                    .count()
-                    > 0;
-                let has_outgoing = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Outgoing)
-                    .count()
-                    > 0;
-                has_incoming || has_outgoing
-            });
-        }
-
-        // Build namespace hierarchy from visible nodes only
-        let hierarchy = self.build_namespace_hierarchy(&nodes);
-        let visible_indices: HashSet<NodeIndex> = nodes.iter().copied().collect();
-
-        // Render groups recursively (internal modules)
-        self.render_dot_subgraph_highlighted(
-            &hierarchy.internal_root,
-            &visible_indices,
-            highlight_set,
+        let nodes = self.select_visible_nodes(
+            NodeSelection::Highlighted,
+            include_orphans,
             include_namespace_packages,
+        );
+        let forest = self.build_namespace_forest(&nodes);
+        let specs = self.dot_spec_map(&nodes, include_namespace_packages, Some(highlight_set));
+
+        self.render_dot_subgraph_generic(
+            &forest.internal,
+            &forest,
+            Some(highlight_set),
+            include_namespace_packages,
+            &specs,
+            true,
             1,
+            false,
             &mut output,
         );
 
-        // Render groups recursively (scripts)
-        self.render_dot_subgraph_highlighted(
-            &hierarchy.script_root,
-            &visible_indices,
-            highlight_set,
+        self.render_dot_subgraph_generic(
+            &forest.scripts,
+            &forest,
+            Some(highlight_set),
             include_namespace_packages,
+            &specs,
+            true,
             1,
+            true,
             &mut output,
         );
 
         // Collect and render ungrouped nodes
-        let mut ungrouped = Vec::new();
-        self.collect_ungrouped_modules(&hierarchy.internal_root, &visible_indices, &mut ungrouped);
-        self.collect_ungrouped_modules(&hierarchy.script_root, &visible_indices, &mut ungrouped);
+        let mut ungrouped: Vec<ModulePath> = Vec::new();
+        self.collect_ungrouped_modules(&forest.internal, &mut ungrouped);
+        self.collect_ungrouped_modules(&forest.scripts, &mut ungrouped);
 
-        ungrouped.sort_by_key(|idx| self.graph[*idx].to_dotted());
+        ungrouped.sort_by_key(|module| module.to_dotted());
 
-        for idx in &ungrouped {
-            let module = &self.graph[*idx];
-            let is_highlighted = highlight_set.contains(module);
-            let is_ns_pkg = self.is_namespace_package(module);
-
-            if self.is_script(module) {
-                if is_highlighted {
-                    output.push_str(&format!(
-                        "    \"{}\" [shape=box, fillcolor=lightblue, style=filled];\n",
-                        module.to_dotted()
-                    ));
-                } else {
-                    output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
-                }
-            } else if is_ns_pkg && include_namespace_packages {
-                if is_highlighted {
-                    output.push_str(&format!(
-                        "    \"{}\" [shape=hexagon, fillcolor=lightblue, style=filled];\n",
-                        module.to_dotted()
-                    ));
-                } else {
-                    output.push_str(&format!(
-                        "    \"{}\" [shape=hexagon, style=dashed];\n",
-                        module.to_dotted()
-                    ));
-                }
-            } else {
-                if is_highlighted {
-                    output.push_str(&format!(
-                        "    \"{}\" [fillcolor=lightblue, style=filled];\n",
-                        module.to_dotted()
-                    ));
-                } else {
-                    output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
+        for module in &ungrouped {
+            if !self.is_group_only_namespace(&forest, module) {
+                if let Some(spec) = specs.get(&module.to_dotted()) {
+                    output.push_str(&spec.render(""));
                 }
             }
         }
 
-        // Collect edges with transitive edge preservation for namespace packages
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
-        let mut edges: Vec<(String, String)> = Vec::new();
-
-        if !include_namespace_packages {
-            // When excluding namespace packages, create transitive edges
-            for from_idx in self.graph.node_indices() {
-                let from_module = &self.graph[from_idx];
-
-                if !node_set.contains(&from_idx) {
-                    continue;
-                }
-
-                for to_idx in self.graph.neighbors(from_idx) {
-                    let to_module = &self.graph[to_idx];
-
-                    if self.is_namespace_package(to_module) {
-                        let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(
-                            to_idx,
-                            &mut visited,
-                            &node_set,
-                            &mut |target_idx| {
-                                let target_module = &self.graph[target_idx];
-                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                            },
-                        );
-                    } else if node_set.contains(&to_idx) {
-                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
-                    }
-                }
-            }
-        } else {
-            edges = self
-                .graph
-                .edge_indices()
-                .filter_map(|e| self.graph.edge_endpoints(e))
-                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
-                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-                .collect();
-        }
-
-        // Remove duplicates and sort edges
-        edges.sort();
-        edges.dedup();
+        let edges = self.collect_edges(&node_set, include_namespace_packages);
 
         // Add edges
         for (from_name, to_name) in edges {
-            output.push_str(&format!("    \"{}\" -> \"{}\";\n", from_name, to_name));
+            output.push_str(&format!("    \"{from_name}\" -> \"{to_name}\";\n"));
         }
 
         output.push_str("}\n");
         output
     }
 
+    fn mermaid_spec_for_module(
+        &self,
+        module: &ModulePath,
+        include_namespace_packages: bool,
+    ) -> Option<MermaidNodeSpec> {
+        if self.is_namespace_package(module) && !include_namespace_packages {
+            return None;
+        }
+
+        let shape = if self.is_script(module) {
+            MermaidShape::Script
+        } else if self.is_namespace_package(module) {
+            MermaidShape::Namespace
+        } else {
+            MermaidShape::Module
+        };
+
+        let label = module.to_dotted();
+        Some(MermaidNodeSpec {
+            id: sanitize_mermaid_id(&label),
+            label,
+            shape,
+        })
+    }
+
+    fn mermaid_spec_map(
+        &self,
+        nodes: &[NodeIndex],
+        include_namespace_packages: bool,
+    ) -> HashMap<String, MermaidNodeSpec> {
+        nodes
+            .iter()
+            .filter_map(|idx| {
+                let module = &self.graph[*idx];
+                self.mermaid_spec_for_module(module, include_namespace_packages)
+                    .map(|spec| (spec.label.clone(), spec))
+            })
+            .collect()
+    }
+
+    fn render_mermaid_edge(
+        &self,
+        from_name: &str,
+        to_name: &str,
+        specs: &HashMap<String, MermaidNodeSpec>,
+    ) -> Option<String> {
+        let from_spec = specs.get(from_name)?;
+        let to_spec = specs.get(to_name)?;
+        Some(format!(
+            "    {} --> {}\n",
+            from_spec.render_inline(),
+            to_spec.render_inline()
+        ))
+    }
+
     /// Helper to recursively render Mermaid subgraphs for namespace groups
+    #[allow(clippy::only_used_in_recursion)]
     fn render_mermaid_subgraph(
         &self,
-        node: &NamespaceNode,
-        visible_indices: &HashSet<NodeIndex>,
+        node: &NamespaceTree,
+        highlight_set: Option<&HashSet<ModulePath>>,
+        include_namespace_packages: bool,
+        specs: &HashMap<String, MermaidNodeSpec>,
         indent_level: usize,
         output: &mut String,
     ) {
@@ -1323,71 +1224,58 @@ impl DependencyGraph {
 
         // Root node should never create a subgraph, just process children
         if node.path.is_empty() {
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_mermaid_subgraph(child, visible_indices, indent_level, output);
-                }
+            for child in node.child_groups() {
+                self.render_mermaid_subgraph(
+                    child,
+                    highlight_set,
+                    include_namespace_packages,
+                    specs,
+                    indent_level,
+                    output,
+                );
             }
             return;
         }
 
-        if node.should_group {
+        if node.grouped {
             let subgraph_id = sanitize_mermaid_id(&node.path.join("."));
             let label = node.path.join(".");
 
-            output.push_str(&format!(
-                "{}subgraph {}[\"{}\"]\n",
-                indent, subgraph_id, label
-            ));
+            output.push_str(&format!("{indent}subgraph {subgraph_id}[\"{label}\"]\n"));
 
             // Find and render direct children modules
-            for idx in self.sorted_direct_children(node, visible_indices) {
-                let module = &self.graph[idx];
-                let id = sanitize_mermaid_id(&module.to_dotted());
-                if self.is_script(module) {
-                    output.push_str(&format!(
-                        "{}    {}[\"{}\"]\n",
-                        indent,
-                        id,
-                        module.to_dotted()
-                    ));
-                } else if self.is_namespace_package(module) {
-                    output.push_str(&format!(
-                        "{}    {}{{{{\"{}\"}}}} \n",
-                        indent,
-                        id,
-                        module.to_dotted()
-                    ));
-                } else {
-                    output.push_str(&format!(
-                        "{}    {}(\"{}\")\n",
-                        indent,
-                        id,
-                        module.to_dotted()
-                    ));
+            for module in node.direct_concrete_children() {
+                if let Some(spec) = specs.get(&module.to_dotted()) {
+                    let is_highlighted = highlight_set
+                        .map(|set| set.contains(&module))
+                        .unwrap_or(false);
+                    output.push_str(&spec.render_definition(&indent, is_highlighted));
                 }
             }
 
             // Recursively render child groups
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_mermaid_subgraph(child, visible_indices, indent_level + 1, output);
-                }
+            for child in node.child_groups() {
+                self.render_mermaid_subgraph(
+                    child,
+                    highlight_set,
+                    include_namespace_packages,
+                    specs,
+                    indent_level + 1,
+                    output,
+                );
             }
 
-            output.push_str(&format!("{}end\n", indent));
+            output.push_str(&format!("{indent}end\n"));
         } else {
-            // Not a group - render children recursively
-            let mut child_names: Vec<_> = node.children.keys().collect();
-            child_names.sort();
-            for child_name in child_names {
-                if let Some(child) = node.children.get(child_name) {
-                    self.render_mermaid_subgraph(child, visible_indices, indent_level, output);
-                }
+            for child in node.child_groups() {
+                self.render_mermaid_subgraph(
+                    child,
+                    highlight_set,
+                    include_namespace_packages,
+                    specs,
+                    indent_level,
+                    output,
+                );
             }
         }
     }
@@ -1395,167 +1283,52 @@ impl DependencyGraph {
     /// Convert the graph to Mermaid flowchart format
     pub fn to_mermaid(&self, include_orphans: bool, include_namespace_packages: bool) -> String {
         let mut output = String::from("flowchart TD\n");
+        let nodes = self.select_visible_nodes(
+            NodeSelection::Full,
+            include_orphans,
+            include_namespace_packages,
+        );
+        let forest = self.build_namespace_forest(&nodes);
+        let specs = self.mermaid_spec_map(&nodes, include_namespace_packages);
 
-        // Collect and sort nodes for deterministic output
-        let mut nodes: Vec<_> = self.graph.node_indices().collect();
-        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
-
-        // Filter out namespace packages unless explicitly requested
-        if !include_namespace_packages {
-            nodes.retain(|idx| {
-                let module = &self.graph[*idx];
-                !self.is_namespace_package(module)
-            });
-        }
-
-        // Filter out orphan nodes unless explicitly requested
-        if !include_orphans {
-            nodes.retain(|idx| {
-                let has_incoming = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Incoming)
-                    .count()
-                    > 0;
-                let has_outgoing = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Outgoing)
-                    .count()
-                    > 0;
-                has_incoming || has_outgoing
-            });
-        }
-
-        // Build namespace hierarchy from visible nodes only
-        let hierarchy = self.build_namespace_hierarchy(&nodes);
-        let visible_indices: HashSet<NodeIndex> = nodes.iter().copied().collect();
-
-        // Render groups recursively (for all nodes)
-        self.render_mermaid_subgraph(&hierarchy.internal_root, &visible_indices, 1, &mut output);
-        self.render_mermaid_subgraph(&hierarchy.script_root, &visible_indices, 1, &mut output);
+        self.render_mermaid_subgraph(
+            &forest.internal,
+            None,
+            include_namespace_packages,
+            &specs,
+            1,
+            &mut output,
+        );
+        self.render_mermaid_subgraph(
+            &forest.scripts,
+            None,
+            include_namespace_packages,
+            &specs,
+            1,
+            &mut output,
+        );
 
         // Collect and render ungrouped nodes
         let mut ungrouped = Vec::new();
-        self.collect_ungrouped_modules(&hierarchy.internal_root, &visible_indices, &mut ungrouped);
-        self.collect_ungrouped_modules(&hierarchy.script_root, &visible_indices, &mut ungrouped);
+        self.collect_ungrouped_modules(&forest.internal, &mut ungrouped);
+        self.collect_ungrouped_modules(&forest.scripts, &mut ungrouped);
 
-        ungrouped.sort_by_key(|idx| self.graph[*idx].to_dotted());
+        ungrouped.sort_by_key(|module: &ModulePath| module.to_dotted());
 
-        for idx in &ungrouped {
-            let module = &self.graph[*idx];
-            let module_name = module.to_dotted();
-            let node_id = sanitize_mermaid_id(&module_name);
-
-            if self.is_script(module) {
-                output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
-            } else if self.is_namespace_package(module) && include_namespace_packages {
-                output.push_str(&format!("    {}{{{{\"{}\"}}}} \n", node_id, module_name));
-            } else {
-                output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
+        for module in &ungrouped {
+            if let Some(spec) = specs.get(&module.to_dotted()) {
+                output.push_str(&spec.render_definition("", false));
             }
         }
 
-        // Collect edges with transitive edge preservation for namespace packages
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
-        let mut edges: Vec<(String, String)> = Vec::new();
-
-        if !include_namespace_packages {
-            // When excluding namespace packages, create transitive edges
-            for from_idx in self.graph.node_indices() {
-                let from_module = &self.graph[from_idx];
-
-                if !node_set.contains(&from_idx) {
-                    continue;
-                }
-
-                for to_idx in self.graph.neighbors(from_idx) {
-                    let to_module = &self.graph[to_idx];
-
-                    if self.is_namespace_package(to_module) {
-                        let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(
-                            to_idx,
-                            &mut visited,
-                            &node_set,
-                            &mut |target_idx| {
-                                let target_module = &self.graph[target_idx];
-                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                            },
-                        );
-                    } else if node_set.contains(&to_idx) {
-                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
-                    }
-                }
-            }
-        } else {
-            edges = self
-                .graph
-                .edge_indices()
-                .filter_map(|e| self.graph.edge_endpoints(e))
-                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
-                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-                .collect();
-        }
-
-        // Remove duplicates and sort edges
-        edges.sort();
-        edges.dedup();
+        let edges = self.collect_edges(&node_set, include_namespace_packages);
 
         // Add edges (which implicitly define nodes)
         for (from_name, to_name) in edges {
-            let from_id = sanitize_mermaid_id(&from_name);
-            let to_id = sanitize_mermaid_id(&to_name);
-
-            // Determine shapes based on whether modules are scripts or namespace packages
-            let from_module_path = ModulePath(from_name.split('.').map(String::from).collect());
-            let to_module_path = ModulePath(to_name.split('.').map(String::from).collect());
-
-            let from_module = self.node_indices.get(&from_module_path);
-            let to_module = self.node_indices.get(&to_module_path);
-
-            let from_shape = if let Some(idx) = from_module {
-                let m = &self.graph[*idx];
-                if self.is_script(m) {
-                    format!("{}[\"{}\"", from_id, from_name)
-                } else if self.is_namespace_package(m) && include_namespace_packages {
-                    format!("{}{{{{\"{}\"", from_id, from_name)
-                } else {
-                    format!("{}(\"{}\"", from_id, from_name)
-                }
-            } else {
-                format!("{}(\"{}\"", from_id, from_name)
-            };
-
-            let to_shape = if let Some(idx) = to_module {
-                let m = &self.graph[*idx];
-                if self.is_script(m) {
-                    format!("{}[\"{}\"", to_id, to_name)
-                } else if self.is_namespace_package(m) && include_namespace_packages {
-                    format!("{}{{{{\"{}\"", to_id, to_name)
-                } else {
-                    format!("{}(\"{}\"", to_id, to_name)
-                }
-            } else {
-                format!("{}(\"{}\"", to_id, to_name)
-            };
-
-            // Close the shapes
-            let from_def = if from_shape.contains('[') {
-                format!("{}]", from_shape)
-            } else if from_shape.contains("{{{{") {
-                format!("{}}}}}", from_shape)
-            } else {
-                format!("{})", from_shape)
-            };
-
-            let to_def = if to_shape.contains('[') {
-                format!("{}]", to_shape)
-            } else if to_shape.contains("{{{{") {
-                format!("{}}}}}", to_shape)
-            } else {
-                format!("{})", to_shape)
-            };
-
-            output.push_str(&format!("    {} --> {}\n", from_def, to_def));
+            if let Some(line) = self.render_mermaid_edge(&from_name, &to_name, &specs) {
+                output.push_str(&line);
+            }
         }
 
         output
@@ -1570,81 +1343,14 @@ impl DependencyGraph {
         include_namespace_packages: bool,
     ) -> String {
         let mut output = String::from("flowchart TD\n");
-
-        // Collect and sort nodes for deterministic output
-        let mut nodes: Vec<_> = self.graph.node_indices().collect();
-        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
-
-        // Filter out namespace packages unless explicitly requested
-        if !include_namespace_packages {
-            nodes.retain(|idx| {
-                let module = &self.graph[*idx];
-                !self.is_namespace_package(module)
-            });
-        }
-
-        // Filter out orphan nodes unless explicitly requested
-        if !include_orphans {
-            nodes.retain(|idx| {
-                let has_incoming = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Incoming)
-                    .count()
-                    > 0;
-                let has_outgoing = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Outgoing)
-                    .count()
-                    > 0;
-                has_incoming || has_outgoing
-            });
-        }
-
-        // Collect edges with transitive edge preservation for namespace packages
+        let nodes = self.select_visible_nodes(
+            NodeSelection::Highlighted,
+            include_orphans,
+            include_namespace_packages,
+        );
+        let specs = self.mermaid_spec_map(&nodes, include_namespace_packages);
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
-        let mut edges: Vec<(String, String)> = Vec::new();
-
-        if !include_namespace_packages {
-            // When excluding namespace packages, create transitive edges
-            for from_idx in self.graph.node_indices() {
-                let from_module = &self.graph[from_idx];
-
-                if !node_set.contains(&from_idx) {
-                    continue;
-                }
-
-                for to_idx in self.graph.neighbors(from_idx) {
-                    let to_module = &self.graph[to_idx];
-
-                    if self.is_namespace_package(to_module) {
-                        let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(
-                            to_idx,
-                            &mut visited,
-                            &node_set,
-                            &mut |target_idx| {
-                                let target_module = &self.graph[target_idx];
-                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                            },
-                        );
-                    } else if node_set.contains(&to_idx) {
-                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
-                    }
-                }
-            }
-        } else {
-            edges = self
-                .graph
-                .edge_indices()
-                .filter_map(|e| self.graph.edge_endpoints(e))
-                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
-                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-                .collect();
-        }
-
-        // Remove duplicates and sort edges
-        edges.sort();
-        edges.dedup();
+        let edges = self.collect_edges(&node_set, include_namespace_packages);
 
         // Create a set of nodes that appear in edges for efficient lookup
         let nodes_in_edges: std::collections::HashSet<String> = edges
@@ -1659,23 +1365,9 @@ impl DependencyGraph {
 
             // Only output standalone node definitions for nodes without edges
             if !nodes_in_edges.contains(&module_name) {
-                let node_id = sanitize_mermaid_id(&module_name);
-                let is_highlighted = highlight_set.contains(module);
-
-                if self.is_script(module) {
-                    // Scripts get rectangle shape
-                    output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
-                } else if self.is_namespace_package(module) && include_namespace_packages {
-                    // Namespace packages get hexagon shape
-                    output.push_str(&format!("    {}{{{{\"{}\"}}}} \n", node_id, module_name));
-                } else {
-                    // Modules get rounded rectangle shape
-                    output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
-                }
-
-                // Apply highlighting class if needed
-                if is_highlighted {
-                    output.push_str(&format!("    class {} highlighted\n", node_id));
+                if let Some(spec) = specs.get(&module_name) {
+                    let is_highlighted = highlight_set.contains(module);
+                    output.push_str(&spec.render_definition("", is_highlighted));
                 }
             }
         }
@@ -1683,76 +1375,28 @@ impl DependencyGraph {
         // Track which nodes have been assigned the highlighted class to avoid duplicates
         let mut highlighted_nodes: std::collections::HashSet<String> =
             std::collections::HashSet::new();
+        let highlighted_names: std::collections::HashSet<String> =
+            highlight_set.iter().map(ModulePath::to_dotted).collect();
 
         // Add edges (which implicitly define nodes)
         for (from_name, to_name) in edges {
-            let from_id = sanitize_mermaid_id(&from_name);
-            let to_id = sanitize_mermaid_id(&to_name);
-
-            // Determine shapes based on whether modules are scripts
-            let from_module = self.node_indices.get(&ModulePath(
-                from_name.split('.').map(String::from).collect(),
-            ));
-            let to_module = self
-                .node_indices
-                .get(&ModulePath(to_name.split('.').map(String::from).collect()));
-
-            let from_is_script = from_module
-                .map(|idx| {
-                    let m = &self.graph[*idx];
-                    self.is_script(m)
-                })
-                .unwrap_or(false);
-
-            let to_is_script = to_module
-                .map(|idx| {
-                    let m = &self.graph[*idx];
-                    self.is_script(m)
-                })
-                .unwrap_or(false);
-
-            let from_shape = if from_is_script {
-                format!("{}[\"{}\"", from_id, from_name)
-            } else {
-                format!("{}(\"{}\"", from_id, from_name)
-            };
-
-            let to_shape = if to_is_script {
-                format!("{}[\"{}\"", to_id, to_name)
-            } else {
-                format!("{}(\"{}\"", to_id, to_name)
-            };
-
-            // Close the shapes
-            let from_def = if from_shape.contains('[') {
-                format!("{}]", from_shape)
-            } else if from_shape.contains("{{{{") {
-                format!("{}}}}}", from_shape)
-            } else {
-                format!("{})", from_shape)
-            };
-
-            let to_def = if to_shape.contains('[') {
-                format!("{}]", to_shape)
-            } else if to_shape.contains("{{{{") {
-                format!("{}}}}}", to_shape)
-            } else {
-                format!("{})", to_shape)
-            };
-
-            output.push_str(&format!("    {} --> {}\n", from_def, to_def));
-
-            // Apply highlighting class to nodes that appear in edges (avoid duplicates)
-            let from_module_path = ModulePath(from_name.split('.').map(String::from).collect());
-            let to_module_path = ModulePath(to_name.split('.').map(String::from).collect());
-
-            if highlight_set.contains(&from_module_path)
-                && highlighted_nodes.insert(from_id.clone())
-            {
-                output.push_str(&format!("    class {} highlighted\n", from_id));
+            if let Some(line) = self.render_mermaid_edge(&from_name, &to_name, &specs) {
+                output.push_str(&line);
             }
-            if highlight_set.contains(&to_module_path) && highlighted_nodes.insert(to_id.clone()) {
-                output.push_str(&format!("    class {} highlighted\n", to_id));
+
+            if highlighted_names.contains(&from_name) {
+                if let Some(spec) = specs.get(&from_name) {
+                    if highlighted_nodes.insert(spec.id.clone()) {
+                        output.push_str(&format!("    class {} highlighted\n", spec.id));
+                    }
+                }
+            }
+            if highlighted_names.contains(&to_name) {
+                if let Some(spec) = specs.get(&to_name) {
+                    if highlighted_nodes.insert(spec.id.clone()) {
+                        output.push_str(&format!("    class {} highlighted\n", spec.id));
+                    }
+                }
             }
         }
 
@@ -1775,143 +1419,59 @@ impl DependencyGraph {
         output.push_str(
             "    // Note: Scripts (files outside source root) are shown with box shape\n",
         );
+        let nodes = self.select_visible_nodes(
+            NodeSelection::Filtered(filter),
+            include_orphans,
+            include_namespace_packages,
+        );
+        let forest = self.build_namespace_forest(&nodes);
+        let specs = self.dot_spec_map(&nodes, include_namespace_packages, None);
 
-        // Collect and sort nodes that are in the filter
-        let mut nodes: Vec<_> = self
-            .graph
-            .node_indices()
-            .filter(|idx| filter.contains(&self.graph[*idx]))
-            .collect();
-        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
-
-        // Filter out namespace packages unless explicitly requested
-        if !include_namespace_packages {
-            nodes.retain(|idx| {
-                let module = &self.graph[*idx];
-                !self.is_namespace_package(module)
-            });
-        }
-
-        // Filter out orphan nodes unless explicitly requested
-        if !include_orphans {
-            nodes.retain(|idx| {
-                let has_incoming = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Incoming)
-                    .count()
-                    > 0;
-                let has_outgoing = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Outgoing)
-                    .count()
-                    > 0;
-                has_incoming || has_outgoing
-            });
-        }
-
-        // Build namespace hierarchy from visible nodes only
-        let hierarchy = self.build_namespace_hierarchy(&nodes);
-        let visible_indices: HashSet<NodeIndex> = nodes.iter().copied().collect();
-
-        // Render groups recursively (internal modules)
-        self.render_dot_subgraph(
-            &hierarchy.internal_root,
-            &hierarchy,
-            &visible_indices,
+        self.render_dot_subgraph_generic(
+            &forest.internal,
+            &forest,
+            None,
+            include_namespace_packages,
+            &specs,
+            false,
             1,
+            false,
             &mut output,
         );
 
-        // Render groups recursively (scripts)
-        self.render_dot_subgraph(
-            &hierarchy.script_root,
-            &hierarchy,
-            &visible_indices,
+        self.render_dot_subgraph_generic(
+            &forest.scripts,
+            &forest,
+            None,
+            include_namespace_packages,
+            &specs,
+            false,
             1,
+            true,
             &mut output,
         );
 
         // Collect and render ungrouped nodes
-        let mut ungrouped = Vec::new();
-        self.collect_ungrouped_modules(&hierarchy.internal_root, &visible_indices, &mut ungrouped);
-        self.collect_ungrouped_modules(&hierarchy.script_root, &visible_indices, &mut ungrouped);
+        let mut ungrouped: Vec<ModulePath> = Vec::new();
+        self.collect_ungrouped_modules(&forest.internal, &mut ungrouped);
+        self.collect_ungrouped_modules(&forest.scripts, &mut ungrouped);
 
-        ungrouped.sort_by_key(|idx| self.graph[*idx].to_dotted());
+        ungrouped.sort_by_key(|module| module.to_dotted());
 
-        for idx in &ungrouped {
-            let module = &self.graph[*idx];
-
-            // Skip group-only namespaces
-            if self.is_group_only_namespace(&hierarchy, module) {
-                continue;
-            }
-
-            if self.is_script(module) {
-                output.push_str(&format!("    \"{}\" [shape=box];\n", module.to_dotted()));
-            } else if self.is_namespace_package(module) && include_namespace_packages {
-                output.push_str(&format!(
-                    "    \"{}\" [shape=hexagon, style=dashed];\n",
-                    module.to_dotted()
-                ));
-            } else {
-                output.push_str(&format!("    \"{}\";\n", module.to_dotted()));
+        for module in &ungrouped {
+            if !self.is_group_only_namespace(&forest, module) {
+                if let Some(spec) = specs.get(&module.to_dotted()) {
+                    output.push_str(&spec.render(""));
+                }
             }
         }
 
-        // Collect edges with transitive edge preservation for namespace packages
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
-        let mut edges: Vec<(String, String)> = Vec::new();
-
-        if !include_namespace_packages {
-            // When excluding namespace packages, create transitive edges
-            for from_idx in self.graph.node_indices() {
-                let from_module = &self.graph[from_idx];
-
-                if !filter.contains(from_module) || !node_set.contains(&from_idx) {
-                    continue;
-                }
-
-                for to_idx in self.graph.neighbors(from_idx) {
-                    let to_module = &self.graph[to_idx];
-
-                    if self.is_namespace_package(to_module) {
-                        let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(
-                            to_idx,
-                            &mut visited,
-                            &node_set,
-                            &mut |target_idx| {
-                                let target_module = &self.graph[target_idx];
-                                if filter.contains(target_module) {
-                                    edges
-                                        .push((from_module.to_dotted(), target_module.to_dotted()));
-                                }
-                            },
-                        );
-                    } else if filter.contains(to_module) && node_set.contains(&to_idx) {
-                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
-                    }
-                }
-            }
-        } else {
-            edges = self
-                .graph
-                .edge_indices()
-                .filter_map(|e| self.graph.edge_endpoints(e))
-                .filter(|(from, to)| {
-                    filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
-                })
-                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-                .collect();
-        }
-
-        // Remove duplicates and sort edges
-        edges.sort();
-        edges.dedup();
+        let edges = self.collect_edges(&node_set, include_namespace_packages);
 
         // Add edges
         for (from_name, to_name) in edges {
-            output.push_str(&format!("    \"{}\" -> \"{}\";\n", from_name, to_name));
+            output.push_str(&format!("    \"{from_name}\" -> \"{to_name}\";\n"));
         }
 
         output.push_str("}\n");
@@ -1927,90 +1487,14 @@ impl DependencyGraph {
         include_namespace_packages: bool,
     ) -> String {
         let mut output = String::from("flowchart TD\n");
-
-        // Collect and sort nodes that are in the filter
-        let mut nodes: Vec<_> = self
-            .graph
-            .node_indices()
-            .filter(|idx| filter.contains(&self.graph[*idx]))
-            .collect();
-        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
-
-        // Filter out namespace packages unless explicitly requested
-        if !include_namespace_packages {
-            nodes.retain(|idx| {
-                let module = &self.graph[*idx];
-                !self.is_namespace_package(module)
-            });
-        }
-
-        // Filter out orphan nodes unless explicitly requested
-        if !include_orphans {
-            nodes.retain(|idx| {
-                let has_incoming = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Incoming)
-                    .count()
-                    > 0;
-                let has_outgoing = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Outgoing)
-                    .count()
-                    > 0;
-                has_incoming || has_outgoing
-            });
-        }
-
-        // Collect edges with transitive edge preservation for namespace packages
+        let nodes = self.select_visible_nodes(
+            NodeSelection::Filtered(filter),
+            include_orphans,
+            include_namespace_packages,
+        );
+        let specs = self.mermaid_spec_map(&nodes, include_namespace_packages);
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
-        let mut edges: Vec<(String, String)> = Vec::new();
-
-        if !include_namespace_packages {
-            // When excluding namespace packages, create transitive edges
-            for from_idx in self.graph.node_indices() {
-                let from_module = &self.graph[from_idx];
-
-                if !filter.contains(from_module) || !node_set.contains(&from_idx) {
-                    continue;
-                }
-
-                for to_idx in self.graph.neighbors(from_idx) {
-                    let to_module = &self.graph[to_idx];
-
-                    if self.is_namespace_package(to_module) {
-                        let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(
-                            to_idx,
-                            &mut visited,
-                            &node_set,
-                            &mut |target_idx| {
-                                let target_module = &self.graph[target_idx];
-                                if filter.contains(target_module) {
-                                    edges
-                                        .push((from_module.to_dotted(), target_module.to_dotted()));
-                                }
-                            },
-                        );
-                    } else if filter.contains(to_module) && node_set.contains(&to_idx) {
-                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
-                    }
-                }
-            }
-        } else {
-            edges = self
-                .graph
-                .edge_indices()
-                .filter_map(|e| self.graph.edge_endpoints(e))
-                .filter(|(from, to)| {
-                    filter.contains(&self.graph[*from]) && filter.contains(&self.graph[*to])
-                })
-                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-                .collect();
-        }
-
-        // Remove duplicates and sort edges
-        edges.sort();
-        edges.dedup();
+        let edges = self.collect_edges(&node_set, include_namespace_packages);
 
         // Create a set of nodes that appear in edges for efficient lookup
         let nodes_in_edges: std::collections::HashSet<String> = edges
@@ -2025,76 +1509,17 @@ impl DependencyGraph {
 
             // Only output standalone node definitions for nodes without edges
             if !nodes_in_edges.contains(&module_name) {
-                let node_id = sanitize_mermaid_id(&module_name);
-                if self.is_script(module) {
-                    // Scripts get rectangle shape
-                    output.push_str(&format!("    {}[\"{}\"]\n", node_id, module_name));
-                } else if self.is_namespace_package(module) && include_namespace_packages {
-                    // Namespace packages get hexagon shape
-                    output.push_str(&format!("    {}{{{{\"{}\"}}}} \n", node_id, module_name));
-                } else {
-                    // Modules get rounded rectangle shape
-                    output.push_str(&format!("    {}(\"{}\")\n", node_id, module_name));
+                if let Some(spec) = specs.get(&module_name) {
+                    output.push_str(&spec.render_definition("", false));
                 }
             }
         }
 
         // Add edges (which implicitly define nodes)
         for (from_name, to_name) in edges {
-            let from_id = sanitize_mermaid_id(&from_name);
-            let to_id = sanitize_mermaid_id(&to_name);
-
-            // Determine shapes based on whether modules are scripts or namespace packages
-            let from_module_path = ModulePath(from_name.split('.').map(String::from).collect());
-            let to_module_path = ModulePath(to_name.split('.').map(String::from).collect());
-
-            let from_module = self.node_indices.get(&from_module_path);
-            let to_module = self.node_indices.get(&to_module_path);
-
-            let from_shape = if let Some(idx) = from_module {
-                let m = &self.graph[*idx];
-                if self.is_script(m) {
-                    format!("{}[\"{}\"", from_id, from_name)
-                } else if self.is_namespace_package(m) && include_namespace_packages {
-                    format!("{}{{{{\"{}\"", from_id, from_name)
-                } else {
-                    format!("{}(\"{}\"", from_id, from_name)
-                }
-            } else {
-                format!("{}(\"{}\"", from_id, from_name)
-            };
-
-            let to_shape = if let Some(idx) = to_module {
-                let m = &self.graph[*idx];
-                if self.is_script(m) {
-                    format!("{}[\"{}\"", to_id, to_name)
-                } else if self.is_namespace_package(m) && include_namespace_packages {
-                    format!("{}{{{{\"{}\"", to_id, to_name)
-                } else {
-                    format!("{}(\"{}\"", to_id, to_name)
-                }
-            } else {
-                format!("{}(\"{}\"", to_id, to_name)
-            };
-
-            // Close the shapes
-            let from_def = if from_shape.contains('[') {
-                format!("{}]", from_shape)
-            } else if from_shape.contains("{{{{") {
-                format!("{}}}}}", from_shape)
-            } else {
-                format!("{})", from_shape)
-            };
-
-            let to_def = if to_shape.contains('[') {
-                format!("{}]", to_shape)
-            } else if to_shape.contains("{{{{") {
-                format!("{}}}}}", to_shape)
-            } else {
-                format!("{})", to_shape)
-            };
-
-            output.push_str(&format!("    {} --> {}\n", from_def, to_def));
+            if let Some(line) = self.render_mermaid_edge(&from_name, &to_name, &specs) {
+                output.push_str(&line);
+            }
         }
 
         output
@@ -2109,64 +1534,11 @@ impl DependencyGraph {
         roots: &[ModulePath],
         max_rank: Option<usize>,
     ) -> HashMap<ModulePath, usize> {
-        let mut downstream: HashMap<ModulePath, usize> = HashMap::new();
-
-        // Convert ModulePaths to NodeIndices
-        let root_indices: Vec<NodeIndex> = roots
-            .iter()
-            .filter_map(|module| self.node_indices.get(module).copied())
-            .collect();
-
-        // Add the root modules themselves with distance 0
-        for module in roots {
-            if self.node_indices.contains_key(module) {
-                downstream.insert(module.clone(), 0);
-            }
-        }
-
-        // Use BFS on the reversed graph to find all modules that depend on the roots
-        // In the reversed graph, edges point from dependents to dependencies
-        let reversed = Reversed(&self.graph);
-
-        for root_idx in root_indices {
-            if let Some(max) = max_rank {
-                // When max_rank is specified, use custom BFS with distance tracking
-                let mut queue = std::collections::VecDeque::new();
-                let mut visited = HashSet::new();
-
-                queue.push_back((root_idx, 0));
-                visited.insert(root_idx);
-
-                while let Some((node_idx, distance)) = queue.pop_front() {
-                    let module = &self.graph[node_idx];
-
-                    // Update downstream map with minimum distance
-                    downstream
-                        .entry(module.clone())
-                        .and_modify(|d| *d = (*d).min(distance))
-                        .or_insert(distance);
-
-                    // Only explore neighbors if we haven't reached max_rank
-                    if distance < max {
-                        for neighbor in self.graph.neighbors_directed(node_idx, Direction::Incoming)
-                        {
-                            if visited.insert(neighbor) {
-                                queue.push_back((neighbor, distance + 1));
-                            }
-                        }
-                    }
-                }
-            } else {
-                // When max_rank is None, use petgraph's BFS (faster)
-                let mut bfs = Bfs::new(&reversed, root_idx);
-                while let Some(node_idx) = bfs.next(&reversed) {
-                    let module = &self.graph[node_idx];
-                    downstream.entry(module.clone()).or_insert(0);
-                }
-            }
-        }
-
-        downstream
+        self.collect_with_distances(roots, max_rank, |idx| {
+            self.graph
+                .neighbors_directed(idx, Direction::Incoming)
+                .collect()
+        })
     }
 
     /// Find all modules that the given root modules depend on (upstream dependencies).
@@ -2178,61 +1550,64 @@ impl DependencyGraph {
         roots: &[ModulePath],
         max_rank: Option<usize>,
     ) -> HashMap<ModulePath, usize> {
-        let mut upstream: HashMap<ModulePath, usize> = HashMap::new();
+        self.collect_with_distances(roots, max_rank, |idx| self.graph.neighbors(idx).collect())
+    }
 
-        // Convert ModulePaths to NodeIndices
-        let root_indices: Vec<NodeIndex> = roots
-            .iter()
-            .filter_map(|module| self.node_indices.get(module).copied())
-            .collect();
+    fn collect_with_distances<F>(
+        &self,
+        roots: &[ModulePath],
+        max_rank: Option<usize>,
+        neighbors: F,
+    ) -> HashMap<ModulePath, usize>
+    where
+        F: Fn(NodeIndex) -> Vec<NodeIndex>,
+    {
+        let mut queue = std::collections::VecDeque::new();
+        let mut distances: HashMap<NodeIndex, usize> = HashMap::new();
 
-        // Add the root modules themselves with distance 0
         for module in roots {
-            if self.node_indices.contains_key(module) {
-                upstream.insert(module.clone(), 0);
+            if let Some(&idx) = self.node_indices.get(module) {
+                distances.entry(idx).or_insert(0);
+                queue.push_back(idx);
             }
         }
 
-        // Use BFS on the original graph to find all modules that the roots depend on
-        // Edges point from modules to their dependencies
-        for root_idx in root_indices {
+        while let Some(node_idx) = queue.pop_front() {
+            let current_distance = *distances
+                .get(&node_idx)
+                .expect("distance map should contain queued node");
+
             if let Some(max) = max_rank {
-                // When max_rank is specified, use custom BFS with distance tracking
-                let mut queue = std::collections::VecDeque::new();
-                let mut visited = HashSet::new();
-
-                queue.push_back((root_idx, 0));
-                visited.insert(root_idx);
-
-                while let Some((node_idx, distance)) = queue.pop_front() {
-                    let module = &self.graph[node_idx];
-
-                    // Update upstream map with minimum distance
-                    upstream
-                        .entry(module.clone())
-                        .and_modify(|d| *d = (*d).min(distance))
-                        .or_insert(distance);
-
-                    // Only explore neighbors if we haven't reached max_rank
-                    if distance < max {
-                        for neighbor in self.graph.neighbors(node_idx) {
-                            if visited.insert(neighbor) {
-                                queue.push_back((neighbor, distance + 1));
-                            }
-                        }
-                    }
+                if current_distance >= max {
+                    continue;
                 }
-            } else {
-                // When max_rank is None, use petgraph's BFS (faster)
-                let mut bfs = Bfs::new(&self.graph, root_idx);
-                while let Some(node_idx) = bfs.next(&self.graph) {
-                    let module = &self.graph[node_idx];
-                    upstream.entry(module.clone()).or_insert(0);
+            }
+
+            let next_distance = current_distance + 1;
+            for neighbor in neighbors(node_idx) {
+                let should_update = match distances.get_mut(&neighbor) {
+                    Some(existing) if *existing <= next_distance => false,
+                    Some(existing) => {
+                        *existing = next_distance;
+                        true
+                    }
+                    None => {
+                        distances.insert(neighbor, next_distance);
+                        true
+                    }
+                };
+
+                if should_update {
+                    queue.push_back(neighbor);
                 }
             }
         }
 
-        upstream
+        let mut result = HashMap::new();
+        for (idx, distance) in distances {
+            result.insert(self.graph[idx].clone(), distance);
+        }
+        result
     }
 
     /// Check if a node is an orphan (has no incoming or outgoing edges)
@@ -2359,52 +1734,21 @@ impl DependencyGraph {
             CytoscapeMode::Filtered(set) | CytoscapeMode::Highlighted(set) => Some(set),
         };
         let is_highlighting_mode = matches!(mode, CytoscapeMode::Highlighted(_));
+        let selection = match mode {
+            CytoscapeMode::Full => NodeSelection::Full,
+            CytoscapeMode::Filtered(set) => NodeSelection::Filtered(set),
+            CytoscapeMode::Highlighted(_) => NodeSelection::Highlighted,
+        };
 
-        // Collect and sort nodes
-        let mut nodes: Vec<_> = self.graph.node_indices().collect();
-        nodes.sort_by_key(|idx| self.graph[*idx].to_dotted());
-
-        // Apply filtering based on mode
-        if let Some(filter) = filter_set {
-            if !is_highlighting_mode {
-                // Filtered mode: only include nodes in filter
-                nodes.retain(|idx| filter.contains(&self.graph[*idx]));
-            }
-            // In highlighting mode, we keep all nodes
-        }
-
-        // Filter out namespace packages unless explicitly requested
-        if !include_namespace_packages {
-            nodes.retain(|idx| {
-                let module = &self.graph[*idx];
-                !self.is_namespace_package(module)
-            });
-        }
-
-        // Filter out orphan nodes unless explicitly requested
-        if !include_orphans {
-            nodes.retain(|idx| {
-                let has_incoming = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Incoming)
-                    .count()
-                    > 0;
-                let has_outgoing = self
-                    .graph
-                    .neighbors_directed(*idx, Direction::Outgoing)
-                    .count()
-                    > 0;
-                has_incoming || has_outgoing
-            });
-        }
+        let nodes =
+            self.select_visible_nodes(selection, include_orphans, include_namespace_packages);
 
         // Build namespace hierarchy from visible nodes
-        let hierarchy = self.build_namespace_hierarchy(&nodes);
-        let visible_indices: HashSet<NodeIndex> = nodes.iter().copied().collect();
+        let forest = self.build_namespace_forest(&nodes);
 
         // Generate compound node relationships
         let (leaf_parent_map, parent_nodes) =
-            self.generate_compound_nodes(&hierarchy, &visible_indices, include_namespace_packages);
+            self.generate_compound_nodes(&forest, include_namespace_packages);
 
         // Build graph nodes
         let node_set: HashSet<NodeIndex> = nodes.iter().copied().collect();
@@ -2413,7 +1757,6 @@ impl DependencyGraph {
         // First, add all pure parent nodes
         graph_nodes.extend(parent_nodes);
 
-        // Then, add all leaf nodes (concrete modules/scripts)
         for idx in &nodes {
             let module = &self.graph[*idx];
             let module_name = module.to_dotted();
@@ -2445,81 +1788,7 @@ impl DependencyGraph {
         }
 
         // Build edge elements JSON with transitive edge preservation for namespace packages
-        let mut edges: Vec<(String, String)> = Vec::new();
-
-        if !include_namespace_packages {
-            // When excluding namespace packages, create transitive edges
-            for from_idx in self.graph.node_indices() {
-                let from_module = &self.graph[from_idx];
-
-                if !node_set.contains(&from_idx) {
-                    continue;
-                }
-
-                // Apply filtering for filtered mode
-                if let Some(filter) = filter_set {
-                    if !is_highlighting_mode && !filter.contains(from_module) {
-                        continue;
-                    }
-                }
-
-                for to_idx in self.graph.neighbors(from_idx) {
-                    let to_module = &self.graph[to_idx];
-
-                    if self.is_namespace_package(to_module) {
-                        let mut visited = HashSet::new();
-                        self.find_transitive_non_namespace_targets(
-                            to_idx,
-                            &mut visited,
-                            &node_set,
-                            &mut |target_idx| {
-                                let target_module = &self.graph[target_idx];
-
-                                // Apply filtering for filtered mode
-                                if let Some(filter) = filter_set {
-                                    if !is_highlighting_mode && !filter.contains(target_module) {
-                                        return;
-                                    }
-                                }
-
-                                edges.push((from_module.to_dotted(), target_module.to_dotted()));
-                            },
-                        );
-                    } else if node_set.contains(&to_idx) {
-                        // Apply filtering for filtered mode
-                        if let Some(filter) = filter_set {
-                            if !is_highlighting_mode && !filter.contains(to_module) {
-                                continue;
-                            }
-                        }
-
-                        edges.push((from_module.to_dotted(), to_module.to_dotted()));
-                    }
-                }
-            }
-        } else {
-            // Include all edges between visible nodes
-            edges = self
-                .graph
-                .edge_indices()
-                .filter_map(|e| self.graph.edge_endpoints(e))
-                .filter(|(from, to)| node_set.contains(from) && node_set.contains(to))
-                .filter(|(from, to)| {
-                    if let Some(filter) = filter_set {
-                        if !is_highlighting_mode {
-                            return filter.contains(&self.graph[*from])
-                                && filter.contains(&self.graph[*to]);
-                        }
-                    }
-                    true
-                })
-                .map(|(from, to)| (self.graph[from].to_dotted(), self.graph[to].to_dotted()))
-                .collect();
-        }
-
-        // Remove duplicates and sort edges
-        edges.sort();
-        edges.dedup();
+        let edges = self.collect_edges(&node_set, include_namespace_packages);
 
         // Build graph edges
         let graph_edges: Vec<GraphEdge> = edges
@@ -2541,8 +1810,7 @@ impl DependencyGraph {
             None
         };
 
-        // Create graph data
-        let graph_data = GraphData {
+        GraphData {
             nodes: graph_nodes,
             edges: graph_edges,
             config: GraphConfig {
@@ -2550,9 +1818,7 @@ impl DependencyGraph {
                 include_namespaces: include_namespace_packages,
                 highlighted_modules,
             },
-        };
-
-        graph_data
+        }
     }
 
     fn render_cytoscape_html(graph_data: &GraphData) -> String {
@@ -2640,6 +1906,18 @@ pub fn analyze_project(
     source_root: Option<&Path>,
     exclude_patterns: &[String],
 ) -> Result<DependencyGraph, PythonAnalysisError> {
+    #[derive(Clone, Copy)]
+    enum SourceKind {
+        Internal,
+        Script,
+    }
+
+    struct SourceFile {
+        module: ModulePath,
+        path: PathBuf,
+        kind: SourceKind,
+    }
+
     if !project_root.is_dir() {
         return Err(PythonAnalysisError::InvalidRoot(project_root.to_path_buf()));
     }
@@ -2654,7 +1932,7 @@ pub fn analyze_project(
     let mut graph = DependencyGraph::new();
 
     // Collect all Python modules in the source root
-    let mut modules: HashMap<ModulePath, PathBuf> = HashMap::new();
+    let mut sources: Vec<SourceFile> = Vec::new();
 
     for entry in WalkDir::new(&actual_source_root)
         .into_iter()
@@ -2663,7 +1941,11 @@ pub fn analyze_project(
     {
         let path = entry.path();
         if let Some(module_path) = ModulePath::from_file_path(path, &actual_source_root) {
-            modules.insert(module_path, path.to_path_buf());
+            sources.push(SourceFile {
+                module: module_path,
+                path: path.to_path_buf(),
+                kind: SourceKind::Internal,
+            });
         }
     }
 
@@ -2697,8 +1979,6 @@ pub fn analyze_project(
     }
 
     // Discover scripts outside the source root
-    let mut scripts: HashMap<ModulePath, PathBuf> = HashMap::new();
-
     for entry in WalkDir::new(project_root)
         .into_iter()
         .filter_entry(|e| {
@@ -2716,21 +1996,30 @@ pub fn analyze_project(
         // Only include files outside the source root
         if !path.starts_with(&actual_source_root) {
             if let Some(script_path) = ModulePath::from_script_path(path, project_root) {
-                scripts.insert(script_path.clone(), path.to_path_buf());
                 graph.mark_as_script(&script_path);
+                sources.push(SourceFile {
+                    module: script_path,
+                    path: path.to_path_buf(),
+                    kind: SourceKind::Script,
+                });
             }
         }
     }
 
     // Combine modules and scripts for import resolution
-    let all_files: HashMap<ModulePath, PathBuf> = modules
+    let all_files: HashMap<ModulePath, PathBuf> = sources
         .iter()
-        .chain(scripts.iter())
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|source| (source.module.clone(), source.path.clone()))
         .collect();
 
-    // Analyze each module's imports (from source root)
-    for (module_path, file_path) in &modules {
+    // Analyze each source file's imports using a single pipeline
+    for source_file in &sources {
+        let SourceFile {
+            module: module_path,
+            path: file_path,
+            kind,
+        } = source_file;
+
         let source = match std::fs::read_to_string(file_path) {
             Ok(source) => source,
             Err(e) => {
@@ -2753,12 +2042,14 @@ pub fn analyze_project(
 
         // Ensure the module exists in the graph even if it has no deps
         graph.get_or_create_node(module_path.clone());
+        if matches!(kind, SourceKind::Script) {
+            graph.mark_as_script(module_path);
+        }
 
         for import in imports {
             match import {
                 Import::Absolute { module } => {
                     let resolved = ModulePath(module);
-                    // Only add if it's an internal dependency
                     if all_files.contains_key(&resolved) || is_package_import(&resolved, &all_files)
                     {
                         graph.add_dependency(module_path.clone(), resolved);
@@ -2769,118 +2060,29 @@ pub fn analyze_project(
                     names,
                     level,
                 } => {
-                    // First resolve the base module path (e.g., "foo.bar" in "from foo.bar import a")
                     let module_str = module.as_ref().map(|v| v.join("."));
                     if let Some(base_path) =
                         module_path.resolve_relative(level, module_str.as_deref())
                     {
-                        // For each imported name, try to resolve it as a submodule
                         for name in &names {
-                            // Try resolving as a submodule (e.g., foo.bar.a)
                             let mut submodule_path = base_path.0.clone();
                             submodule_path.push(name.clone());
                             let submodule = ModulePath(submodule_path);
 
-                            // Check if it's a submodule or fall back to the base package
                             if all_files.contains_key(&submodule) {
-                                // It's a submodule (e.g., foo.bar.a exists as a file)
                                 graph.add_dependency(module_path.clone(), submodule);
                             } else if all_files.contains_key(&base_path)
                                 || is_package_import(&base_path, &all_files)
                             {
-                                // It's importing a name from the package's __init__.py
-                                // Create edge to the package itself
                                 graph.add_dependency(module_path.clone(), base_path.clone());
                             }
                         }
 
-                        // If no names were imported (star import), add edge to the base package
-                        if names.is_empty() {
-                            if all_files.contains_key(&base_path)
-                                || is_package_import(&base_path, &all_files)
-                            {
-                                graph.add_dependency(module_path.clone(), base_path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // Analyze each script's imports (from outside source root)
-    for (script_path, file_path) in &scripts {
-        let source = match std::fs::read_to_string(file_path) {
-            Ok(source) => source,
-            Err(e) => {
-                eprintln!("Warning: Skipping file {}: {}", file_path.display(), e);
-                continue;
-            }
-        };
-
-        let imports = match extract_imports(&source) {
-            Ok(imports) => imports,
-            Err(message) => {
-                eprintln!(
-                    "Warning: Skipping unparseable file {}: {}",
-                    file_path.display(),
-                    message
-                );
-                continue;
-            }
-        };
-
-        // Ensure the script exists in the graph even if it has no deps
-        graph.get_or_create_node(script_path.clone());
-
-        for import in imports {
-            match import {
-                Import::Absolute { module } => {
-                    let resolved = ModulePath(module);
-                    // Only add if it's an internal dependency
-                    if all_files.contains_key(&resolved) || is_package_import(&resolved, &all_files)
-                    {
-                        graph.add_dependency(script_path.clone(), resolved);
-                    }
-                }
-                Import::From {
-                    module,
-                    names,
-                    level,
-                } => {
-                    // First resolve the base module path
-                    let module_str = module.as_ref().map(|v| v.join("."));
-                    // For scripts, relative imports resolve against the script's own location
-                    if let Some(base_path) =
-                        script_path.resolve_relative(level, module_str.as_deref())
-                    {
-                        // For each imported name, try to resolve it as a submodule
-                        for name in &names {
-                            // Try resolving as a submodule (e.g., foo.bar.a)
-                            let mut submodule_path = base_path.0.clone();
-                            submodule_path.push(name.clone());
-                            let submodule = ModulePath(submodule_path);
-
-                            // Check if it's a submodule or fall back to the base package
-                            if all_files.contains_key(&submodule) {
-                                // It's a submodule (e.g., foo.bar.a exists as a file)
-                                graph.add_dependency(script_path.clone(), submodule);
-                            } else if all_files.contains_key(&base_path)
-                                || is_package_import(&base_path, &all_files)
-                            {
-                                // It's importing a name from the package's __init__.py
-                                // Create edge to the package itself
-                                graph.add_dependency(script_path.clone(), base_path.clone());
-                            }
-                        }
-
-                        // If no names were imported (star import), add edge to the base package
-                        if names.is_empty() {
-                            if all_files.contains_key(&base_path)
-                                || is_package_import(&base_path, &all_files)
-                            {
-                                graph.add_dependency(script_path.clone(), base_path);
-                            }
+                        if names.is_empty()
+                            && (all_files.contains_key(&base_path)
+                                || is_package_import(&base_path, &all_files))
+                        {
+                            graph.add_dependency(module_path.clone(), base_path);
                         }
                     }
                 }
@@ -2947,18 +2149,15 @@ fn should_exclude_path(path: &Path, project_root: &Path, exclude_patterns: &[Str
         // Simple glob pattern matching (supports * wildcard)
         if pattern.contains('*') {
             // Convert glob pattern to simple prefix/suffix/contains check
-            if pattern.starts_with('*') && pattern.ends_with('*') {
-                let substr = &pattern[1..pattern.len() - 1];
+            if let Some(substr) = pattern.strip_prefix('*').and_then(|p| p.strip_suffix('*')) {
                 if path_str.contains(substr) {
                     return true;
                 }
-            } else if pattern.starts_with('*') {
-                let suffix = &pattern[1..];
+            } else if let Some(suffix) = pattern.strip_prefix('*') {
                 if path_str.ends_with(suffix) {
                     return true;
                 }
-            } else if pattern.ends_with('*') {
-                let prefix = &pattern[..pattern.len() - 1];
+            } else if let Some(prefix) = pattern.strip_suffix('*') {
                 if path_str.starts_with(prefix) {
                     return true;
                 }

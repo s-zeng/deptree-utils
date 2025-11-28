@@ -9,6 +9,11 @@ collection", as opposed to "C++ with borrow checker"). Use features like
 Algebraic Data Types and Traits liberally, with an algebra-oriented design 
 mindset
 
+Clippy is configured (see `.cargo/config.toml`) to warn on manual iterator
+patterns like `manual_filter_map`, `manual_find_map`, `manual_flatten`, and
+`needless_collect` to keep the codebase biased toward combinators over
+imperative `mut` flows.
+
 When writing new documentation files, ensure to clarify that "Documentation written by an AI assistant" somewhere in the file.
 
 ALL tests should be in the `tests/` directory, and should follow the snapshot 

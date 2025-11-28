@@ -1,0 +1,8 @@
+[target.'cfg(clippy)']
+rustflags = [
+  # Prefer iterator combinators over manual loops/collects when it keeps code readable
+  "-Wclippy::manual_find_map",
+  "-Wclippy::manual_flatten",
+  "-Wclippy::manual_filter_map",
+  "-Wclippy::needless_collect",
+]

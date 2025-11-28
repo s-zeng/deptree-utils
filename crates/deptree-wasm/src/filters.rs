@@ -43,44 +43,23 @@ pub fn apply_filters(
     exclude_patterns: &[String],
     filtered_set: Option<&HashSet<String>>, // If Some, only include nodes in this set
 ) -> HashSet<String> {
-    let mut visible = HashSet::new();
-
-    for node in nodes {
-        // If filtered_set is provided, only include nodes in that set
-        if let Some(set) = filtered_set {
-            if !set.contains(&node.id) {
-                continue;
-            }
-        }
-
-        // Filter orphans
-        if !show_orphans && node.is_orphan {
-            continue;
-        }
-
-        // Filter namespace packages
-        if !show_namespaces && node.node_type == "namespace" {
-            continue;
-        }
-
-        // Filter scripts by exclusion patterns
-        if node.node_type == "script" {
-            let mut excluded = false;
-            for pattern in exclude_patterns {
-                if matches_pattern(&node.id, pattern) {
-                    excluded = true;
-                    break;
-                }
-            }
-            if excluded {
-                continue;
-            }
-        }
-
-        visible.insert(node.id.clone());
-    }
-
-    visible
+    nodes
+        .iter()
+        .filter(|node| {
+            filtered_set
+                .map(|set| set.contains(&node.id))
+                .unwrap_or(true)
+        })
+        .filter(|node| show_orphans || !node.is_orphan)
+        .filter(|node| show_namespaces || node.node_type != "namespace")
+        .filter(|node| {
+            node.node_type != "script"
+                || !exclude_patterns
+                    .iter()
+                    .any(|pattern| matches_pattern(&node.id, pattern))
+        })
+        .map(|node| node.id.clone())
+        .collect()
 }
 
 #[cfg(test)]
