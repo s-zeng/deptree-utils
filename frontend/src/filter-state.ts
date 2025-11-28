@@ -1,6 +1,6 @@
-import type cytoscape from 'cytoscape';
-import type { FilterConfig, FilterResult } from './types';
-import type { GraphProcessor } from './wasm/deptree_wasm';
+import type cytoscape from "cytoscape";
+import type { FilterConfig, FilterResult } from "./types";
+import type { GraphProcessor } from "./wasm/deptree_wasm";
 
 export class FilterState {
   private processor: GraphProcessor;
@@ -56,7 +56,7 @@ export class FilterState {
    * Apply all filters using WASM
    */
   applyFilters(): void {
-    console.log('Frontend applyFilters called');
+    console.log("Frontend applyFilters called");
 
     // Prepare filter configuration for WASM
     const wasmFilterConfig = {
@@ -69,12 +69,14 @@ export class FilterState {
       highlightedOnly: this.config.highlightedOnly,
     };
 
-    console.log('Filter config:', wasmFilterConfig);
+    console.log("Filter config:", wasmFilterConfig);
 
     // Call WASM to compute visible and highlighted nodes
-    const result: FilterResult = this.processor.filter_nodes(JSON.stringify(wasmFilterConfig)) as FilterResult;
+    const result: FilterResult = this.processor.filter_nodes(
+      JSON.stringify(wasmFilterConfig),
+    ) as FilterResult;
 
-    console.log('WASM result:', result);
+    console.log("WASM result:", result);
 
     // Create sets for O(1) lookup
     const visibleSet = new Set(result.visible);
@@ -83,17 +85,24 @@ export class FilterState {
     // Update Cytoscape node visibility
     this.cy.nodes().forEach((node) => {
       const isVisible = visibleSet.has(node.id());
-      const isParent = typeof node.isParent === 'function' && node.isParent();
+      const isParent = typeof node.isParent === "function" && node.isParent();
 
       // For parent nodes, check if ANY child is visible
       if (isParent) {
-        const children = typeof node.children === 'function' ? node.children() : [];
-        const hasVisibleChildren = typeof (children as any).some === 'function'
-          ? (children as any).some((child: { id: () => string }) => visibleSet.has(child.id()))
-          : false;
-        node.style('display', (isVisible || hasVisibleChildren) ? 'element' : 'none');
+        const children =
+          typeof node.children === "function" ? node.children() : [];
+        const hasVisibleChildren =
+          typeof (children as any).some === "function"
+            ? (children as any).some((child: { id: () => string }) =>
+                visibleSet.has(child.id()),
+              )
+            : false;
+        node.style(
+          "display",
+          isVisible || hasVisibleChildren ? "element" : "none",
+        );
       } else {
-        node.style('display', isVisible ? 'element' : 'none');
+        node.style("display", isVisible ? "element" : "none");
       }
     });
 
@@ -103,29 +112,31 @@ export class FilterState {
       const shouldHighlight = highlightedSet.has(nodeId);
 
       // Always set highlighted flag for downstream consumers/tests
-      node.data('highlighted', shouldHighlight);
+      node.data("highlighted", shouldHighlight);
       if (shouldHighlight) {
         console.log(`Setting ${nodeId} as highlighted`);
         // Directly set highlight styles to ensure they're applied
         node.style({
-          'background-color': '#ffeb3b',
-          'border-width': 4,
-          'border-color': '#f57f17',
+          "background-color": "#ffeb3b",
+          "border-width": 4,
+          "border-color": "#f57f17",
         });
       } else {
         console.log(`Removing highlight from ${nodeId}`);
         // Remove the inline styles to fall back to stylesheet defaults when supported
-        if (typeof (node as any).removeStyle === 'function') {
-          node.removeStyle('background-color border-width border-color');
+        if (typeof (node as any).removeStyle === "function") {
+          node.removeStyle("background-color border-width border-color");
         }
       }
     });
 
     // Verify what happened
-    console.log('After highlighting update:');
+    console.log("After highlighting update:");
     this.cy.nodes().forEach((node) => {
-      const nodeStyle = node.style('background-color');
-      console.log(`  ${node.id()}: highlighted=${node.data('highlighted')}, bg=${nodeStyle}`);
+      const nodeStyle = node.style("background-color");
+      console.log(
+        `  ${node.id()}: highlighted=${node.data("highlighted")}, bg=${nodeStyle}`,
+      );
     });
 
     // Update edge visibility (only show if both source and target are visible)
@@ -133,7 +144,7 @@ export class FilterState {
       const sourceVisible = visibleSet.has(edge.source().id());
       const targetVisible = visibleSet.has(edge.target().id());
       const isVisible = sourceVisible && targetVisible;
-      edge.style('display', isVisible ? 'element' : 'none');
+      edge.style("display", isVisible ? "element" : "none");
     });
   }
 

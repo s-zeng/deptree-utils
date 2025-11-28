@@ -7,7 +7,11 @@ export class ModuleSelector {
   private selected: Set<string>;
   private onChange: (selected: Set<string>) => void;
 
-  constructor(containerId: string, allModules: string[], onChange: (selected: Set<string>) => void) {
+  constructor(
+    containerId: string,
+    allModules: string[],
+    onChange: (selected: Set<string>) => void,
+  ) {
     const container = document.getElementById(containerId);
     if (!container) {
       throw new Error(`Element with id ${containerId} not found`);
@@ -24,14 +28,17 @@ export class ModuleSelector {
   render(): void {
     const chips = Array.from(this.selected)
       .sort()
-      .map((m) => `<span class="module-chip">${m} <span class="remove" data-module="${m}">×</span></span>`)
-      .join('');
+      .map(
+        (m) =>
+          `<span class="module-chip">${m} <span class="remove" data-module="${m}">×</span></span>`,
+      )
+      .join("");
 
     this.container.innerHTML = chips;
 
     // Add remove handlers
-    this.container.querySelectorAll('.remove').forEach((btn) => {
-      btn.addEventListener('click', () => {
+    this.container.querySelectorAll(".remove").forEach((btn) => {
+      btn.addEventListener("click", () => {
         const module = (btn as HTMLElement).dataset.module;
         if (module) {
           this.removeModule(module);

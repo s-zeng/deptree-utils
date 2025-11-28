@@ -2,7 +2,7 @@
 
 export interface GraphNode {
   id: string;
-  type: 'module' | 'script' | 'namespace' | 'namespace_group';
+  type: "module" | "script" | "namespace" | "namespace_group";
   is_orphan: boolean;
   highlighted?: boolean;
   parent?: string;

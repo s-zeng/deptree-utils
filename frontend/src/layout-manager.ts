@@ -1,9 +1,13 @@
-import type cytoscape from 'cytoscape';
-import { LAYOUT_CONFIGS, type LayoutConfig, type LayoutSetting } from './layout-configs';
+import type cytoscape from "cytoscape";
+import {
+  LAYOUT_CONFIGS,
+  type LayoutConfig,
+  type LayoutSetting,
+} from "./layout-configs";
 
 export class LayoutManager {
   private cy: cytoscape.Core;
-  private currentLayout: string = 'dagre';
+  private currentLayout: string = "dagre";
   private settings: Map<string, Map<string, any>>;
   private advancedExpanded: boolean = false;
 
@@ -16,12 +20,16 @@ export class LayoutManager {
       const layoutSettings = new Map<string, any>();
 
       // Add key settings
-      for (const [settingName, setting] of Object.entries(config.settings.key)) {
+      for (const [settingName, setting] of Object.entries(
+        config.settings.key,
+      )) {
         layoutSettings.set(settingName, setting.default);
       }
 
       // Add advanced settings
-      for (const [settingName, setting] of Object.entries(config.settings.advanced)) {
+      for (const [settingName, setting] of Object.entries(
+        config.settings.advanced,
+      )) {
         layoutSettings.set(settingName, setting.default);
       }
 
@@ -51,7 +59,7 @@ export class LayoutManager {
 
     // ELK uses a nested `elk` options object; keep it separate so Cytoscape-ELK
     // forwards the hierarchy handling and other options correctly for compound graphs.
-    if (this.currentLayout === 'elk') {
+    if (this.currentLayout === "elk") {
       const elkOptions: Record<string, any> = {};
 
       for (const [key, value] of layoutSettings.entries()) {
@@ -61,7 +69,7 @@ export class LayoutManager {
       }
 
       return {
-        name: 'elk',
+        name: "elk",
         animate: false,
         nodeDimensionsIncludeLabels: true,
         elk: elkOptions,
@@ -119,7 +127,7 @@ export class LayoutManager {
    * Render the settings UI for the current layout
    */
   renderSettingsUI(): void {
-    const container = document.getElementById('layout-settings-container');
+    const container = document.getElementById("layout-settings-container");
     if (!container) return;
 
     const config = LAYOUT_CONFIGS[this.currentLayout];
@@ -132,31 +140,33 @@ export class LayoutManager {
     for (const [settingName, setting] of Object.entries(config.settings.key)) {
       html += this.renderSettingControl(settingName, setting);
     }
-    html += '</div>';
+    html += "</div>";
 
     // Render advanced settings (collapsible)
     if (Object.keys(config.settings.advanced).length > 0) {
       html += '<div class="advanced-settings-section">';
       html += `
         <div class="advanced-toggle" id="advanced-toggle">
-          <span class="toggle-icon">${this.advancedExpanded ? '▼' : '▶'}</span>
+          <span class="toggle-icon">${this.advancedExpanded ? "▼" : "▶"}</span>
           <span>Advanced Settings</span>
         </div>
       `;
 
       html += `<div class="advanced-settings-content" style="display: ${
-        this.advancedExpanded ? 'block' : 'none'
+        this.advancedExpanded ? "block" : "none"
       }">`;
 
-      for (const [settingName, setting] of Object.entries(config.settings.advanced)) {
+      for (const [settingName, setting] of Object.entries(
+        config.settings.advanced,
+      )) {
         html += this.renderSettingControl(settingName, setting);
       }
 
-      html += '</div>';
-      html += '</div>';
+      html += "</div>";
+      html += "</div>";
     }
 
-    html += '</div>';
+    html += "</div>";
 
     container.innerHTML = html;
 
@@ -167,27 +177,31 @@ export class LayoutManager {
   /**
    * Render a single setting control
    */
-  private renderSettingControl(settingName: string, setting: LayoutSetting): string {
+  private renderSettingControl(
+    settingName: string,
+    setting: LayoutSetting,
+  ): string {
     const currentValue =
-      this.settings.get(this.currentLayout)?.get(settingName) ?? setting.default;
+      this.settings.get(this.currentLayout)?.get(settingName) ??
+      setting.default;
 
     let html = '<div class="layout-setting">';
     html += `<label>${setting.label}</label>`;
 
     switch (setting.type) {
-      case 'select':
+      case "select":
         html += `<select data-setting="${settingName}">`;
         for (const option of setting.options || []) {
-          const selected = currentValue === option.value ? 'selected' : '';
+          const selected = currentValue === option.value ? "selected" : "";
           html += `<option value="${option.value}" ${selected}>${option.label}</option>`;
         }
-        html += '</select>';
+        html += "</select>";
         break;
 
-      case 'number':
+      case "number":
         const valueAttr =
           currentValue === null || currentValue === undefined
-            ? ''
+            ? ""
             : `value="${currentValue}"`;
         html += `<input type="number"
           data-setting="${settingName}"
@@ -195,12 +209,12 @@ export class LayoutManager {
           max="${setting.max}"
           step="${setting.step}"
           ${valueAttr}
-          ${setting.nullable ? 'placeholder="Auto"' : ''}
+          ${setting.nullable ? 'placeholder="Auto"' : ""}
         />`;
         break;
 
-      case 'checkbox':
-        const checked = currentValue ? 'checked' : '';
+      case "checkbox":
+        const checked = currentValue ? "checked" : "";
         html += `<input type="checkbox"
           data-setting="${settingName}"
           ${checked}
@@ -208,7 +222,7 @@ export class LayoutManager {
         break;
     }
 
-    html += '</div>';
+    html += "</div>";
     return html;
   }
 
@@ -216,29 +230,29 @@ export class LayoutManager {
    * Attach event listeners to setting controls
    */
   private attachSettingListeners(): void {
-    const container = document.getElementById('layout-settings-container');
+    const container = document.getElementById("layout-settings-container");
     if (!container) return;
 
     // Setting change listeners
-    container.querySelectorAll('[data-setting]').forEach((element) => {
+    container.querySelectorAll("[data-setting]").forEach((element) => {
       const settingName = (element as HTMLElement).dataset.setting;
       if (!settingName) return;
 
       if (element instanceof HTMLSelectElement) {
-        element.addEventListener('change', (e) => {
+        element.addEventListener("change", (e) => {
           const value = (e.target as HTMLSelectElement).value;
           this.updateSetting(settingName, value);
         });
       } else if (element instanceof HTMLInputElement) {
-        if (element.type === 'checkbox') {
-          element.addEventListener('change', (e) => {
+        if (element.type === "checkbox") {
+          element.addEventListener("change", (e) => {
             const value = (e.target as HTMLInputElement).checked;
             this.updateSetting(settingName, value);
           });
-        } else if (element.type === 'number') {
-          element.addEventListener('change', (e) => {
+        } else if (element.type === "number") {
+          element.addEventListener("change", (e) => {
             const inputValue = (e.target as HTMLInputElement).value;
-            const value = inputValue === '' ? null : parseFloat(inputValue);
+            const value = inputValue === "" ? null : parseFloat(inputValue);
             this.updateSetting(settingName, value);
           });
         }
@@ -246,9 +260,9 @@ export class LayoutManager {
     });
 
     // Advanced toggle listener
-    const advancedToggle = document.getElementById('advanced-toggle');
+    const advancedToggle = document.getElementById("advanced-toggle");
     if (advancedToggle) {
-      advancedToggle.addEventListener('click', () => {
+      advancedToggle.addEventListener("click", () => {
         this.advancedExpanded = !this.advancedExpanded;
         this.renderSettingsUI();
       });

@@ -1,17 +1,17 @@
-import type { GraphData, DistanceMap } from './types';
-import type cytoscape from 'cytoscape';
+import type { GraphData, DistanceMap } from "./types";
+import type cytoscape from "cytoscape";
 
 // Declare Cytoscape as a global (loaded from CDN)
-declare const cytoscape: typeof import('cytoscape');
+declare const cytoscape: typeof import("cytoscape");
 
-export const HIGHLIGHT_SELECTOR = 'node[?highlighted]';
+export const HIGHLIGHT_SELECTOR = "node[?highlighted]";
 
 /**
  * Initialize Cytoscape with graph data and styling
  */
 export function initializeCytoscape(
   graphData: GraphData,
-  distances: DistanceMap
+  distances: DistanceMap,
 ): cytoscape.Core {
   // Register layout extensions
   registerLayoutExtensions();
@@ -21,7 +21,7 @@ export function initializeCytoscape(
 
   // Initialize Cytoscape
   const cy = cytoscape({
-    container: document.getElementById('cy'),
+    container: document.getElementById("cy"),
 
     elements,
 
@@ -29,8 +29,8 @@ export function initializeCytoscape(
 
     // Initial layout will be set by layout manager
     layout: {
-      name: 'dagre',
-      rankDir: 'LR',
+      name: "dagre",
+      rankDir: "LR",
       nodeSep: 50,
       rankSep: 100,
       padding: 30,
@@ -47,28 +47,28 @@ export function initializeCytoscape(
  * Register Cytoscape layout extension libraries
  */
 function registerLayoutExtensions(): void {
-  if (typeof cytoscape === 'undefined') {
-    console.warn('Cytoscape not loaded');
+  if (typeof cytoscape === "undefined") {
+    console.warn("Cytoscape not loaded");
     return;
   }
 
   // Register cose-bilkent
-  if (typeof (window as any).cytoscapeCoseBilkent !== 'undefined') {
+  if (typeof (window as any).cytoscapeCoseBilkent !== "undefined") {
     cytoscape.use((window as any).cytoscapeCoseBilkent);
   }
 
   // Register cola
-  if (typeof (window as any).cytoscapeCola !== 'undefined') {
+  if (typeof (window as any).cytoscapeCola !== "undefined") {
     cytoscape.use((window as any).cytoscapeCola);
   }
 
   // Register elk
-  if (typeof (window as any).cytoscapeElk !== 'undefined') {
+  if (typeof (window as any).cytoscapeElk !== "undefined") {
     cytoscape.use((window as any).cytoscapeElk);
   }
 
   // Register dagre
-  if (typeof (window as any).cytoscapeDagre !== 'undefined') {
+  if (typeof (window as any).cytoscapeDagre !== "undefined") {
     cytoscape.use((window as any).cytoscapeDagre);
   }
 }
@@ -78,7 +78,7 @@ function registerLayoutExtensions(): void {
  */
 function transformToElements(
   graphData: GraphData,
-  distances: DistanceMap
+  distances: DistanceMap,
 ): cytoscape.ElementDefinition[] {
   const elements: cytoscape.ElementDefinition[] = [];
 
@@ -126,21 +126,21 @@ export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
   return [
     // Default node style
     {
-      selector: 'node',
+      selector: "node",
       style: {
-        label: 'data(label)',
-        'text-valign': 'center',
-        'text-halign': 'center',
-        'font-size': '12px',
-        'background-color': '#90caf9',
-        'border-width': 1,
-        'border-color': '#1976d2',
-        width: 'label',
-        height: 'label',
-        padding: '10px',
-        shape: 'ellipse',
-        'text-wrap': 'wrap',
-        'text-max-width': '150px',
+        label: "data(label)",
+        "text-valign": "center",
+        "text-halign": "center",
+        "font-size": "12px",
+        "background-color": "#90caf9",
+        "border-width": 1,
+        "border-color": "#1976d2",
+        width: "label",
+        height: "label",
+        padding: "10px",
+        shape: "ellipse",
+        "text-wrap": "wrap",
+        "text-max-width": "150px",
       },
     },
 
@@ -148,9 +148,9 @@ export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
     {
       selector: 'node[type="script"]',
       style: {
-        shape: 'rectangle',
-        'background-color': '#a5d6a7',
-        'border-color': '#388e3c',
+        shape: "rectangle",
+        "background-color": "#a5d6a7",
+        "border-color": "#388e3c",
       },
     },
 
@@ -158,10 +158,10 @@ export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
     {
       selector: 'node[type="namespace"]',
       style: {
-        shape: 'hexagon',
-        'background-color': '#ffcc80',
-        'border-color': '#f57c00',
-        'border-style': 'dashed',
+        shape: "hexagon",
+        "background-color": "#ffcc80",
+        "border-color": "#f57c00",
+        "border-style": "dashed",
       },
     },
 
@@ -170,28 +170,28 @@ export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
       // Use truthy check so nodes with highlighted=false won't be styled
       selector: HIGHLIGHT_SELECTOR,
       style: {
-        'background-color': '#ffeb3b', // Bright yellow
-        'border-width': 4,
-        'border-color': '#f57f17', // Dark amber/orange border
+        "background-color": "#ffeb3b", // Bright yellow
+        "border-width": 4,
+        "border-color": "#f57f17", // Dark amber/orange border
       },
     },
 
     // Parent nodes (namespace groups) - must use rectangle shape for compound nodes
     {
-      selector: 'node:parent',
+      selector: "node:parent",
       style: {
-        'background-color': '#e3f2fd',
-        'background-opacity': 0.3,
-        'border-width': 2,
-        'border-color': '#1976d2',
-        'border-style': 'dashed',
-        shape: 'rectangle',
-        label: 'data(label)',
-        'text-valign': 'top',
-        'text-halign': 'center',
-        'font-size': '14px',
-        'font-weight': 'bold',
-        padding: '20px',
+        "background-color": "#e3f2fd",
+        "background-opacity": 0.3,
+        "border-width": 2,
+        "border-color": "#1976d2",
+        "border-style": "dashed",
+        shape: "rectangle",
+        label: "data(label)",
+        "text-valign": "top",
+        "text-halign": "center",
+        "font-size": "14px",
+        "font-weight": "bold",
+        padding: "20px",
       },
     },
 
@@ -199,22 +199,22 @@ export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
     {
       selector: 'node[type="namespace_group"]',
       style: {
-        'background-color': '#fff3e0',
-        'background-opacity': 0.2,
-        'border-color': '#ff9800',
+        "background-color": "#fff3e0",
+        "background-opacity": 0.2,
+        "border-color": "#ff9800",
       },
     },
 
     // Edges
     {
-      selector: 'edge',
+      selector: "edge",
       style: {
         width: 2,
-        'line-color': '#999',
-        'target-arrow-color': '#999',
-        'target-arrow-shape': 'triangle',
-        'curve-style': 'bezier',
-        'arrow-scale': 1.2,
+        "line-color": "#999",
+        "target-arrow-color": "#999",
+        "target-arrow-shape": "triangle",
+        "curve-style": "bezier",
+        "arrow-scale": 1.2,
       },
     },
   ];
@@ -225,18 +225,18 @@ export function getCytoscapeStyles(): cytoscape.Stylesheet[] {
  */
 function setupEventHandlers(cy: cytoscape.Core): void {
   // Update info panel on node selection
-  cy.on('select', 'node', (evt) => {
+  cy.on("select", "node", (evt) => {
     const node = evt.target;
-    const info = document.getElementById('info');
+    const info = document.getElementById("info");
     if (info) {
-      info.textContent = `Selected: ${node.data('label')}`;
+      info.textContent = `Selected: ${node.data("label")}`;
     }
   });
 
-  cy.on('unselect', 'node', () => {
-    const info = document.getElementById('info');
+  cy.on("unselect", "node", () => {
+    const info = document.getElementById("info");
     if (info) {
-      info.textContent = '';
+      info.textContent = "";
     }
   });
 }
@@ -260,8 +260,8 @@ export const cytoscapeControls = {
 
   exportPNG(cy: cytoscape.Core): void {
     const png = cy.png({ full: true, scale: 2 });
-    const link = document.createElement('a');
-    link.download = 'dependency-graph.png';
+    const link = document.createElement("a");
+    link.download = "dependency-graph.png";
     link.href = png;
     link.click();
   },

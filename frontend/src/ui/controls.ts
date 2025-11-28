@@ -1,7 +1,7 @@
-import type cytoscape from 'cytoscape';
-import { cytoscapeControls } from '../cytoscape-manager';
-import type { LayoutManager } from '../layout-manager';
-import type { FilterState } from '../filter-state';
+import type cytoscape from "cytoscape";
+import { cytoscapeControls } from "../cytoscape-manager";
+import type { LayoutManager } from "../layout-manager";
+import type { FilterState } from "../filter-state";
 
 /**
  * Setup all UI event handlers
@@ -9,49 +9,49 @@ import type { FilterState } from '../filter-state';
 export function setupUIEventHandlers(
   cy: cytoscape.Core,
   layoutManager: LayoutManager,
-  filterState: FilterState
+  filterState: FilterState,
 ): void {
   // === Top Control Bar ===
 
   // Fit to screen
-  const fitBtn = document.getElementById('fit');
+  const fitBtn = document.getElementById("fit");
   if (fitBtn) {
-    fitBtn.addEventListener('click', () => {
+    fitBtn.addEventListener("click", () => {
       cytoscapeControls.fitGraph(cy);
     });
   }
 
   // Reset zoom
-  const resetZoomBtn = document.getElementById('reset-zoom');
+  const resetZoomBtn = document.getElementById("reset-zoom");
   if (resetZoomBtn) {
-    resetZoomBtn.addEventListener('click', () => {
+    resetZoomBtn.addEventListener("click", () => {
       cytoscapeControls.resetZoom(cy);
     });
   }
 
   // Center graph
-  const centerBtn = document.getElementById('center');
+  const centerBtn = document.getElementById("center");
   if (centerBtn) {
-    centerBtn.addEventListener('click', () => {
+    centerBtn.addEventListener("click", () => {
       cytoscapeControls.centerGraph(cy);
     });
   }
 
   // Export PNG
-  const exportBtn = document.getElementById('export-png');
+  const exportBtn = document.getElementById("export-png");
   if (exportBtn) {
-    exportBtn.addEventListener('click', () => {
+    exportBtn.addEventListener("click", () => {
       cytoscapeControls.exportPNG(cy);
     });
   }
 
   // Toggle filter panel
-  const toggleFiltersBtn = document.getElementById('toggle-filters');
+  const toggleFiltersBtn = document.getElementById("toggle-filters");
   if (toggleFiltersBtn) {
-    toggleFiltersBtn.addEventListener('click', () => {
-      const panel = document.getElementById('filter-panel');
+    toggleFiltersBtn.addEventListener("click", () => {
+      const panel = document.getElementById("filter-panel");
       if (panel) {
-        panel.classList.toggle('collapsed');
+        panel.classList.toggle("collapsed");
         // Resize graph after animation
         setTimeout(() => cy.resize(), 300);
       }
@@ -61,37 +61,45 @@ export function setupUIEventHandlers(
   // === Filter Controls ===
 
   // Show orphans checkbox
-  const showOrphansCheckbox = document.getElementById('show-orphans') as HTMLInputElement;
+  const showOrphansCheckbox = document.getElementById(
+    "show-orphans",
+  ) as HTMLInputElement;
   if (showOrphansCheckbox) {
-    showOrphansCheckbox.addEventListener('change', (e) => {
+    showOrphansCheckbox.addEventListener("change", (e) => {
       filterState.toggleOrphans((e.target as HTMLInputElement).checked);
     });
   }
 
   // Show namespaces checkbox
-  const showNamespacesCheckbox = document.getElementById('show-namespaces') as HTMLInputElement;
+  const showNamespacesCheckbox = document.getElementById(
+    "show-namespaces",
+  ) as HTMLInputElement;
   if (showNamespacesCheckbox) {
-    showNamespacesCheckbox.addEventListener('change', (e) => {
+    showNamespacesCheckbox.addEventListener("change", (e) => {
       filterState.toggleNamespaces((e.target as HTMLInputElement).checked);
     });
   }
 
   // Highlighted only checkbox
-  const highlightedOnlyCheckbox = document.getElementById('highlighted-only') as HTMLInputElement;
+  const highlightedOnlyCheckbox = document.getElementById(
+    "highlighted-only",
+  ) as HTMLInputElement;
   if (highlightedOnlyCheckbox) {
-    highlightedOnlyCheckbox.addEventListener('change', (e) => {
+    highlightedOnlyCheckbox.addEventListener("change", (e) => {
       filterState.toggleHighlightedOnly((e.target as HTMLInputElement).checked);
     });
   }
 
   // Distance slider
-  const distanceSlider = document.getElementById('distance-slider') as HTMLInputElement;
-  const distanceValue = document.getElementById('distance-value');
+  const distanceSlider = document.getElementById(
+    "distance-slider",
+  ) as HTMLInputElement;
+  const distanceValue = document.getElementById("distance-value");
   if (distanceSlider && distanceValue) {
-    distanceSlider.addEventListener('input', (e) => {
+    distanceSlider.addEventListener("input", (e) => {
       const value = parseInt((e.target as HTMLInputElement).value);
       if (value >= 10) {
-        distanceValue.textContent = '∞';
+        distanceValue.textContent = "∞";
         filterState.setMaxDistance(null);
       } else {
         distanceValue.textContent = value.toString();
@@ -101,15 +109,17 @@ export function setupUIEventHandlers(
   }
 
   // Exclude patterns input
-  const excludePatternsInput = document.getElementById('exclude-patterns') as HTMLInputElement;
+  const excludePatternsInput = document.getElementById(
+    "exclude-patterns",
+  ) as HTMLInputElement;
   if (excludePatternsInput) {
     let debounceTimer: number;
-    excludePatternsInput.addEventListener('input', (e) => {
+    excludePatternsInput.addEventListener("input", (e) => {
       clearTimeout(debounceTimer);
       debounceTimer = window.setTimeout(() => {
         const value = (e.target as HTMLInputElement).value;
         const patterns = value
-          .split(',')
+          .split(",")
           .map((p) => p.trim())
           .filter((p) => p.length > 0);
         filterState.setExcludePatterns(patterns);
@@ -118,18 +128,18 @@ export function setupUIEventHandlers(
   }
 
   // Apply filters button
-  const applyFiltersBtn = document.getElementById('apply-filters');
+  const applyFiltersBtn = document.getElementById("apply-filters");
   if (applyFiltersBtn) {
-    applyFiltersBtn.addEventListener('click', () => {
+    applyFiltersBtn.addEventListener("click", () => {
       filterState.applyFilters();
       layoutManager.applyLayout(true);
     });
   }
 
   // Reset filters button
-  const resetFiltersBtn = document.getElementById('reset-filters');
+  const resetFiltersBtn = document.getElementById("reset-filters");
   if (resetFiltersBtn) {
-    resetFiltersBtn.addEventListener('click', () => {
+    resetFiltersBtn.addEventListener("click", () => {
       filterState.reset();
 
       // Reset UI elements
@@ -137,14 +147,14 @@ export function setupUIEventHandlers(
       if (showNamespacesCheckbox) showNamespacesCheckbox.checked = true;
       if (highlightedOnlyCheckbox) highlightedOnlyCheckbox.checked = true;
       if (distanceSlider) {
-        distanceSlider.value = '10';
-        if (distanceValue) distanceValue.textContent = '∞';
+        distanceSlider.value = "10";
+        if (distanceValue) distanceValue.textContent = "∞";
       }
-      if (excludePatternsInput) excludePatternsInput.value = '';
+      if (excludePatternsInput) excludePatternsInput.value = "";
 
       // Show all nodes
-      cy.nodes().style('display', 'element');
-      cy.edges().style('display', 'element');
+      cy.nodes().style("display", "element");
+      cy.edges().style("display", "element");
 
       // Re-apply layout
       layoutManager.applyLayout(true);
@@ -153,18 +163,20 @@ export function setupUIEventHandlers(
 
   // === Layout Controls ===
 
-  const layoutSelect = document.getElementById('layout-select') as HTMLSelectElement;
+  const layoutSelect = document.getElementById(
+    "layout-select",
+  ) as HTMLSelectElement;
   if (layoutSelect) {
-    layoutSelect.addEventListener('change', (e) => {
+    layoutSelect.addEventListener("change", (e) => {
       const selectedLayout = (e.target as HTMLSelectElement).value;
       layoutManager.setLayout(selectedLayout);
       layoutManager.renderSettingsUI();
     });
   }
 
-  const applyLayoutBtn = document.getElementById('apply-layout');
+  const applyLayoutBtn = document.getElementById("apply-layout");
   if (applyLayoutBtn) {
-    applyLayoutBtn.addEventListener('click', () => {
+    applyLayoutBtn.addEventListener("click", () => {
       layoutManager.applyLayout(true);
     });
   }

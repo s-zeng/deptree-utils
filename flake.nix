@@ -191,6 +191,13 @@
             programs = {
               nixpkgs-fmt.enable = true;
               rustfmt.enable = true;
+              prettier = {
+                enable = true;
+                includes = [
+                  "frontend/**/*.ts"
+                  "frontend/**/*.tsx"
+                ];
+              };
             };
           };
         };
