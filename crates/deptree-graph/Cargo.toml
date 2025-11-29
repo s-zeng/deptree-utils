@@ -4,6 +4,16 @@ version = "0.1.0"
 edition = "2024"
 description = "Shared graph models and algorithms for deptree-utils"
 
+[features]
+default = []
+ts-bindings = ["ts-rs"]
+
 [dependencies]
 petgraph = "0.6"
 serde = { version = "1.0", features = ["derive"] }
+ts-rs = { version = "9.0", optional = true, features = ["serde-compat", "no-serde-warnings"] }
+
+[[bin]]
+name = "export_ts"
+path = "src/bin/export_ts.rs"
+required-features = ["ts-bindings"]

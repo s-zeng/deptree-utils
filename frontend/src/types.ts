@@ -1,29 +1,7 @@
-// Type definitions for graph data
-
-export interface GraphNode {
-  id: string;
-  type: "module" | "script" | "namespace" | "namespace_group";
-  is_orphan: boolean;
-  highlighted?: boolean;
-  parent?: string;
-}
-
-export interface GraphEdge {
-  source: string;
-  target: string;
-}
-
-export interface GraphConfig {
-  include_orphans: boolean;
-  include_namespaces: boolean;
-  highlighted_modules?: string[];
-}
-
-export interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  config?: GraphConfig;
-}
+import type { GraphConfig } from "./bindings/GraphConfig";
+import type { GraphData } from "./bindings/GraphData";
+import type { GraphEdge } from "./bindings/GraphEdge";
+import type { GraphNode } from "./bindings/GraphNode";
 
 export interface FilterConfig {
   showOrphans: boolean;
@@ -39,6 +17,8 @@ export interface FilterResult {
   visible: string[];
   highlighted: string[];
 }
+
+export type { GraphConfig, GraphData, GraphEdge, GraphNode };
 
 export interface DistanceMap {
   [nodeId: string]: {

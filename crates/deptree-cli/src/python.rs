@@ -3,11 +3,9 @@
 //! Parses Python files to extract import statements and builds a dependency graph
 //! of internal module dependencies.
 
-use deptree_graph::{GraphConfig, GraphData, GraphEdge, GraphNode};
+use deptree_graph::{GraphConfig, GraphData, GraphEdge, GraphNode, filters};
 use petgraph::Direction;
-use petgraph::algo::dijkstra;
 use petgraph::graph::{DiGraph, NodeIndex};
-use petgraph::visit::Reversed;
 use ruff_python_parser::parse_module;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -35,6 +33,14 @@ pub enum PythonAnalysisError {
 pub struct ModulePath(pub Vec<String>);
 
 impl ModulePath {
+    /// Create a module path from a dotted module string (e.g., "pkg_a.module_a")
+    pub fn from_dotted(input: &str) -> Option<Self> {
+        if input.trim().is_empty() {
+            return None;
+        }
+        Some(ModulePath(input.split('.').map(str::to_string).collect()))
+    }
+
     /// Create a module path from a file path relative to the project root
     pub fn from_file_path(path: &Path, root: &Path) -> Option<Self> {
         let relative = path.strip_prefix(root).ok()?;
@@ -447,20 +453,6 @@ struct NamespaceForest {
     scripts: NamespaceTree,
 }
 
-enum EitherGraph<'a> {
-    Forward(&'a DiGraph<ModulePath, ()>),
-    Reversed(Reversed<&'a DiGraph<ModulePath, ()>>),
-}
-
-impl<'a> EitherGraph<'a> {
-    fn run_dijkstra(&self, start: NodeIndex) -> HashMap<NodeIndex, usize> {
-        match self {
-            EitherGraph::Forward(graph) => dijkstra(*graph, start, None, |_| 1usize),
-            EitherGraph::Reversed(graph) => dijkstra(*graph, start, None, |_| 1usize),
-        }
-    }
-}
-
 /// The dependency graph of Python modules
 pub struct DependencyGraph {
     graph: DiGraph<ModulePath, ()>,
@@ -597,6 +589,17 @@ impl DependencyGraph {
         let from_idx = self.get_or_create_node(from);
         let to_idx = self.get_or_create_node(to);
         self.graph.add_edge(from_idx, to_idx, ());
+    }
+
+    fn graph_edges(&self) -> Vec<GraphEdge> {
+        self.graph
+            .edge_indices()
+            .filter_map(|edge_idx| self.graph.edge_endpoints(edge_idx))
+            .map(|(from, to)| GraphEdge {
+                source: self.graph[from].to_dotted(),
+                target: self.graph[to].to_dotted(),
+            })
+            .collect()
     }
 
     /// Build the complete namespace forest from graph nodes
@@ -1535,7 +1538,25 @@ impl DependencyGraph {
         roots: &[ModulePath],
         max_rank: Option<usize>,
     ) -> HashMap<ModulePath, usize> {
-        self.collect_with_distances(roots, max_rank, Direction::Incoming)
+        let roots: Vec<ModulePath> = roots
+            .iter()
+            .filter(|m| self.node_indices.contains_key(m))
+            .cloned()
+            .collect();
+
+        if roots.is_empty() {
+            return HashMap::new();
+        }
+
+        let graph_edges = self.graph_edges();
+        let root_ids: Vec<String> = roots.iter().map(ModulePath::to_dotted).collect();
+        let reachable =
+            deptree_graph::get_downstream_nodes_with_distance(&root_ids, &graph_edges, max_rank);
+
+        reachable
+            .into_iter()
+            .filter_map(|(id, dist)| ModulePath::from_dotted(&id).map(|module| (module, dist)))
+            .collect()
     }
 
     /// Find all modules that the given root modules depend on (upstream dependencies).
@@ -1547,45 +1568,24 @@ impl DependencyGraph {
         roots: &[ModulePath],
         max_rank: Option<usize>,
     ) -> HashMap<ModulePath, usize> {
-        self.collect_with_distances(roots, max_rank, Direction::Outgoing)
-    }
-
-    fn collect_with_distances(
-        &self,
-        roots: &[ModulePath],
-        max_rank: Option<usize>,
-        direction: Direction,
-    ) -> HashMap<ModulePath, usize> {
-        let distance_maps = roots
+        let roots: Vec<ModulePath> = roots
             .iter()
-            .filter_map(|module| self.node_indices.get(module).map(|&idx| (module, idx)));
+            .filter(|m| self.node_indices.contains_key(m))
+            .cloned()
+            .collect();
 
-        let mut aggregated: HashMap<NodeIndex, usize> = HashMap::new();
-
-        for (_, start_idx) in distance_maps {
-            let view = match direction {
-                Direction::Outgoing => EitherGraph::Forward(&self.graph),
-                Direction::Incoming => EitherGraph::Reversed(Reversed(&self.graph)),
-            };
-
-            let distances = view.run_dijkstra(start_idx);
-
-            for (idx, distance) in distances {
-                if max_rank.map(|limit| distance > limit).unwrap_or(false) {
-                    continue;
-                }
-                match aggregated.get(&idx) {
-                    Some(&existing) if existing <= distance => {}
-                    _ => {
-                        aggregated.insert(idx, distance);
-                    }
-                }
-            }
+        if roots.is_empty() {
+            return HashMap::new();
         }
 
-        aggregated
+        let graph_edges = self.graph_edges();
+        let root_ids: Vec<String> = roots.iter().map(ModulePath::to_dotted).collect();
+        let reachable =
+            deptree_graph::get_upstream_nodes_with_distance(&root_ids, &graph_edges, max_rank);
+
+        reachable
             .into_iter()
-            .map(|(idx, distance)| (self.graph[idx].clone(), distance))
+            .filter_map(|(id, dist)| ModulePath::from_dotted(&id).map(|module| (module, dist)))
             .collect()
     }
 
@@ -2123,30 +2123,10 @@ fn should_exclude_path(path: &Path, project_root: &Path, exclude_patterns: &[Str
         }
     }
 
-    // Check custom exclusion patterns
-    for pattern in exclude_patterns {
-        // Simple glob pattern matching (supports * wildcard)
-        if pattern.contains('*') {
-            // Convert glob pattern to simple prefix/suffix/contains check
-            if let Some(substr) = pattern.strip_prefix('*').and_then(|p| p.strip_suffix('*')) {
-                if path_str.contains(substr) {
-                    return true;
-                }
-            } else if let Some(suffix) = pattern.strip_prefix('*') {
-                if path_str.ends_with(suffix) {
-                    return true;
-                }
-            } else if let Some(prefix) = pattern.strip_suffix('*') {
-                if path_str.starts_with(prefix) {
-                    return true;
-                }
-            }
-        } else if path_str.contains(pattern.as_str()) {
-            return true;
-        }
-    }
-
-    false
+    // Check custom exclusion patterns using shared matcher
+    exclude_patterns
+        .iter()
+        .any(|pattern| filters::matches_pattern(&path_str, pattern))
 }
 
 /// Parse pyproject.toml to find the configured source root

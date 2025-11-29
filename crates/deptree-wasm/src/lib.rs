@@ -1,8 +1,7 @@
-mod filters;
-
 pub use deptree_graph::{GraphConfig, GraphData, GraphEdge, GraphNode};
 use deptree_graph::{
-    compute_all_distances, get_downstream_nodes, get_upstream_nodes, is_orphan_node,
+    compute_all_distances, filters::apply_filters, get_downstream_nodes, get_upstream_nodes,
+    is_orphan_node,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -165,7 +164,7 @@ impl GraphProcessor {
         };
 
         // Step 3: Apply remaining filters (orphans, namespaces, patterns) to visible set
-        let mut visible = filters::apply_filters(
+        let mut visible = apply_filters(
             &self.nodes,
             filter_config.show_orphans,
             filter_config.show_namespaces,
@@ -458,7 +457,7 @@ mod tests {
             };
 
             // Apply remaining filters
-            let visible = filters::apply_filters(
+            let visible = apply_filters(
                 &processor.nodes,
                 filter_config.show_orphans,
                 filter_config.show_namespaces,

@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use crate::GraphNode;
 
-/// Match a string against a wildcard pattern
-/// Supports: *prefix, suffix*, *substring*
+/// Match a string against a wildcard pattern.
+/// Supports: *prefix, suffix*, *substring*.
 pub fn matches_pattern(text: &str, pattern: &str) -> bool {
     if pattern.is_empty() {
         return text.is_empty();
@@ -35,7 +35,7 @@ pub fn matches_pattern(text: &str, pattern: &str) -> bool {
     }
 }
 
-/// Filter nodes based on multiple criteria
+/// Filter nodes based on multiple criteria.
 pub fn apply_filters(
     nodes: &[GraphNode],
     show_orphans: bool,

@@ -68,6 +68,10 @@ This project uses `just` (justfile) for build automation. The build pipeline has
 
 - Shared Rust graph types/algorithms live in `crates/deptree-graph` and are consumed by both the CLI and the WASM/frontend pipeline.
 
+### TypeScript bindings (Documentation written by an AI assistant)
+- Generate the TS bindings for the shared graph models with `cargo run -p deptree-graph --features ts-bindings --bin export_ts`
+- Output files land in `frontend/src/bindings/` and are imported by `frontend/src/types.ts`
+
 ## Features
 
 ### Python Dependency Analysis

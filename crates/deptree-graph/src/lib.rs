@@ -6,20 +6,30 @@ use petgraph::visit::Reversed;
 use petgraph::{Direction, Graph};
 use serde::{Deserialize, Serialize};
 
+pub mod filters;
+
 /// Graph node representation shared between the CLI and frontend.
+#[cfg_attr(feature = "ts-bindings", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: String,
     #[serde(rename = "type")]
+    #[cfg_attr(
+        feature = "ts-bindings",
+        ts(type = "\"module\" | \"script\" | \"namespace\" | \"namespace_group\"")
+    )]
     pub node_type: String, // "module", "script", "namespace", or "namespace_group"
     pub is_orphan: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional))]
     pub highlighted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional))]
     pub parent: Option<String>,
 }
 
 /// Graph edge representation shared between the CLI and frontend.
+#[cfg_attr(feature = "ts-bindings", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
     pub source: String,
@@ -27,20 +37,24 @@ pub struct GraphEdge {
 }
 
 /// Graph configuration for visualization consumers.
+#[cfg_attr(feature = "ts-bindings", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphConfig {
     pub include_orphans: bool,
     pub include_namespaces: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional))]
     pub highlighted_modules: Option<Vec<String>>,
 }
 
 /// Complete graph data payload passed from the CLI to the frontend.
+#[cfg_attr(feature = "ts-bindings", derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphData {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts-bindings", ts(optional))]
     pub config: Option<GraphConfig>,
 }
 
@@ -140,7 +154,9 @@ pub fn get_upstream_nodes(
     edges: &[GraphEdge],
     max_distance: Option<usize>,
 ) -> HashSet<String> {
-    collect_reachable(roots, edges, max_distance, Direction::Outgoing)
+    get_upstream_nodes_with_distance(roots, edges, max_distance)
+        .into_keys()
+        .collect()
 }
 
 /// Get all downstream dependents (nodes that depend on the roots).
@@ -149,15 +165,35 @@ pub fn get_downstream_nodes(
     edges: &[GraphEdge],
     max_distance: Option<usize>,
 ) -> HashSet<String> {
-    collect_reachable(roots, edges, max_distance, Direction::Incoming)
+    get_downstream_nodes_with_distance(roots, edges, max_distance)
+        .into_keys()
+        .collect()
 }
 
-fn collect_reachable(
+/// Get upstream dependencies with distance information (root has distance 0).
+pub fn get_upstream_nodes_with_distance(
+    roots: &[String],
+    edges: &[GraphEdge],
+    max_distance: Option<usize>,
+) -> HashMap<String, usize> {
+    collect_reachable_with_distance(roots, edges, max_distance, Direction::Outgoing)
+}
+
+/// Get downstream dependents with distance information (root has distance 0).
+pub fn get_downstream_nodes_with_distance(
+    roots: &[String],
+    edges: &[GraphEdge],
+    max_distance: Option<usize>,
+) -> HashMap<String, usize> {
+    collect_reachable_with_distance(roots, edges, max_distance, Direction::Incoming)
+}
+
+fn collect_reachable_with_distance(
     roots: &[String],
     edges: &[GraphEdge],
     max_distance: Option<usize>,
     direction: Direction,
-) -> HashSet<String> {
+) -> HashMap<String, usize> {
     let node_ids: HashSet<String> = edges
         .iter()
         .flat_map(|e| [e.source.clone(), e.target.clone()])
@@ -177,7 +213,7 @@ fn collect_reachable(
 
     let (graph, node_map) = build_graph(&graph_nodes, edges);
 
-    let mut result: HashSet<String> = roots.iter().cloned().collect();
+    let mut result: HashMap<String, usize> = HashMap::new();
 
     for root in roots {
         if let Some(&start_idx) = node_map.get(root) {
@@ -192,7 +228,13 @@ fn collect_reachable(
                 }
 
                 if let Some(node_id) = graph.node_weight(node_idx) {
-                    result.insert(node_id.clone());
+                    match result.get_mut(node_id) {
+                        Some(existing) if *existing <= distance => {}
+                        Some(existing) => *existing = distance,
+                        None => {
+                            result.insert(node_id.clone(), distance);
+                        }
+                    }
                 }
             }
         }

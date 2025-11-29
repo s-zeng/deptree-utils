@@ -10,6 +10,7 @@ frontend-install:
 
 # Build WASM module and copy to frontend
 wasm-build:
+    cargo run -p deptree-graph --features ts-bindings --bin export_ts
     cd crates/deptree-wasm && wasm-pack build --target web
     mkdir -p frontend/src/wasm
     cp crates/deptree-wasm/pkg/* frontend/src/wasm/
@@ -104,6 +105,7 @@ clean-frontend:
     rm -rf frontend/dist
     rm -rf frontend/node_modules
     rm -rf frontend/src/wasm
+    rm -rf frontend/src/bindings
     rm -f crates/deptree-cli/templates/cytoscape.html
     @echo "✓ Frontend cleaned"
 
