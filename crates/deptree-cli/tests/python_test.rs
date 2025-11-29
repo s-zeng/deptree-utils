@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use deptree_utils::python;
+use deptree_utils::{cytoscape, python};
 
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1455,8 +1455,9 @@ fn test_namespace_with_orphans_and_highlighting() {
 fn test_sample_python_project_cytoscape_output() {
     let root = fixture_path();
     let graph = python::analyze_project(&root, None, &[]).expect("Failed to analyze project");
-    let cytoscape_output = graph.to_cytoscape(false, false);
     let graph_data = graph.to_cytoscape_graph_data(false, false);
+    let cytoscape_output = cytoscape::render_cytoscape_html(&graph_data)
+        .expect("Cytoscape HTML should render with embedded graph data");
     let serialized = serde_json::to_string_pretty(&graph_data)
         .expect("Cytoscape graph data should serialize to JSON");
 

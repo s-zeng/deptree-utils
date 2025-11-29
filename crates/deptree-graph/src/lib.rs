@@ -6,7 +6,9 @@ use petgraph::visit::Reversed;
 use petgraph::{Direction, Graph};
 use serde::{Deserialize, Serialize};
 
+pub mod dependency_graph;
 pub mod filters;
+pub use dependency_graph::{DependencyGraph, GraphId};
 
 /// Graph node representation shared between the CLI and frontend.
 #[cfg_attr(feature = "ts-bindings", derive(ts_rs::TS))]

@@ -67,6 +67,7 @@ This project uses `just` (justfile) for build automation. The build pipeline has
 - `just lint` - runs `cargo clippy --all-targets --all-features -D warnings` and `bun run lint` (TypeScript `tsc --noEmit`)
 
 - Shared Rust graph types/algorithms live in `crates/deptree-graph` and are consumed by both the CLI and the WASM/frontend pipeline.
+- The reusable dependency graph renderer/filter stack lives in `crates/deptree-graph::dependency_graph` as `DependencyGraph<T: GraphId>`; language analyzers (e.g., Python) should focus on parsing/module resolution and feed their `GraphId` implementation into that shared layer.
 
 ### TypeScript bindings (Documentation written by an AI assistant)
 - Generate the TS bindings for the shared graph models with `cargo run -p deptree-graph --features ts-bindings --bin export_ts`

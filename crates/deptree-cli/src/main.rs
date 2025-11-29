@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use deptree_utils::python;
+use deptree_utils::{cytoscape, python};
 use std::path::{Path, PathBuf};
 
 /// Output formats supported by the CLI
@@ -390,23 +390,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     OutputFormat::Cytoscape => {
                         if show_all {
-                            println!(
-                                "{}",
-                                graph.to_cytoscape_highlighted(
-                                    &filter,
-                                    include_orphans,
-                                    include_namespace_packages
-                                )
+                            let data = graph.to_cytoscape_graph_data_highlighted(
+                                &filter,
+                                include_orphans,
+                                include_namespace_packages,
                             );
+                            let html = cytoscape::render_cytoscape_html(&data)?;
+                            println!("{html}");
                         } else {
-                            println!(
-                                "{}",
-                                graph.to_cytoscape_filtered(
-                                    &filter,
-                                    include_orphans,
-                                    include_namespace_packages
-                                )
+                            let data = graph.to_cytoscape_graph_data_filtered(
+                                &filter,
+                                include_orphans,
+                                include_namespace_packages,
                             );
+                            let html = cytoscape::render_cytoscape_html(&data)?;
+                            println!("{html}");
                         }
                     }
                     OutputFormat::List => {
@@ -435,10 +433,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                     }
                     OutputFormat::Cytoscape => {
-                        println!(
-                            "{}",
-                            graph.to_cytoscape(include_orphans, include_namespace_packages)
-                        );
+                        let data = graph
+                            .to_cytoscape_graph_data(include_orphans, include_namespace_packages);
+                        let html = cytoscape::render_cytoscape_html(&data)?;
+                        println!("{html}");
                     }
                     OutputFormat::List => {
                         return Err(
