@@ -66,6 +66,8 @@ This project uses `just` (justfile) for build automation. The build pipeline has
 **Linting**:
 - `just lint` - runs `cargo clippy --all-targets --all-features -D warnings` and `bun run lint` (TypeScript `tsc --noEmit`)
 
+- Shared Rust graph types/algorithms live in `crates/deptree-graph` and are consumed by both the CLI and the WASM/frontend pipeline.
+
 ## Features
 
 ### Python Dependency Analysis

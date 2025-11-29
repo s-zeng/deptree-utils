@@ -3,12 +3,12 @@
 //! Parses Python files to extract import statements and builds a dependency graph
 //! of internal module dependencies.
 
+use deptree_graph::{GraphConfig, GraphData, GraphEdge, GraphNode};
 use petgraph::Direction;
 use petgraph::algo::dijkstra;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::Reversed;
 use ruff_python_parser::parse_module;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -307,43 +307,6 @@ impl MermaidNodeSpec {
             MermaidShape::Module => format!("{}(\"{}\")", self.id, self.label),
         }
     }
-}
-
-/// Graph node for frontend data model
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphNode {
-    id: String,
-    #[serde(rename = "type")]
-    node_type: String,
-    is_orphan: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    highlighted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent: Option<String>,
-}
-
-/// Graph edge for frontend data model
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphEdge {
-    source: String,
-    target: String,
-}
-
-/// Graph configuration for frontend
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphConfig {
-    pub include_orphans: bool,
-    pub include_namespaces: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub highlighted_modules: Option<Vec<String>>,
-}
-
-/// Complete graph data for frontend
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphData {
-    nodes: Vec<GraphNode>,
-    edges: Vec<GraphEdge>,
-    config: GraphConfig,
 }
 
 /// Rendering mode for Cytoscape data generation
@@ -1829,11 +1792,11 @@ impl DependencyGraph {
         GraphData {
             nodes: graph_nodes,
             edges: graph_edges,
-            config: GraphConfig {
+            config: Some(GraphConfig {
                 include_orphans,
                 include_namespaces: include_namespace_packages,
                 highlighted_modules,
-            },
+            }),
         }
     }
 

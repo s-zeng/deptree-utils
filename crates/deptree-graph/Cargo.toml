@@ -1,0 +1,9 @@
+[package]
+name = "deptree-graph"
+version = "0.1.0"
+edition = "2024"
+description = "Shared graph models and algorithms for deptree-utils"
+
+[dependencies]
+petgraph = "0.6"
+serde = { version = "1.0", features = ["derive"] }

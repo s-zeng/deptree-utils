@@ -1,47 +1,12 @@
 mod filters;
-mod graph;
 
+pub use deptree_graph::{GraphConfig, GraphData, GraphEdge, GraphNode};
+use deptree_graph::{
+    compute_all_distances, get_downstream_nodes, get_upstream_nodes, is_orphan_node,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
-
-/// Graph node representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphNode {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub node_type: String, // "module", "script", "namespace", or "namespace_group"
-    pub is_orphan: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub highlighted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-}
-
-/// Graph edge representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphEdge {
-    pub source: String,
-    pub target: String,
-}
-
-/// Complete graph data
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GraphData {
-    pub nodes: Vec<GraphNode>,
-    pub edges: Vec<GraphEdge>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config: Option<GraphConfig>,
-}
-
-/// Configuration for graph visualization
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphConfig {
-    pub include_orphans: bool,
-    pub include_namespaces: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub highlighted_modules: Option<Vec<String>>,
-}
 
 /// Filter configuration from JavaScript
 #[derive(Debug, Deserialize)]
@@ -97,13 +62,13 @@ impl GraphProcessor {
     /// Compute all-pairs shortest paths using BFS
     /// Returns JSON object with distances: { "node1": { "node2": 2, "node3": 1 }, ... }
     pub fn compute_all_distances(&self) -> JsValue {
-        let distances = graph::compute_all_distances(&self.nodes, &self.edges);
+        let distances = compute_all_distances(&self.nodes, &self.edges);
         serde_wasm_bindgen::to_value(&distances).unwrap_or(JsValue::NULL)
     }
 
     /// Check if a node is an orphan (no incoming or outgoing edges)
     pub fn is_orphan(&self, node_id: &str) -> bool {
-        graph::is_orphan_node(node_id, &self.edges)
+        is_orphan_node(node_id, &self.edges)
     }
 
     /// Helper method to get the parent ID of a node
@@ -149,7 +114,7 @@ impl GraphProcessor {
 
         // Apply upstream filtering
         if !filter_config.upstream_roots.is_empty() {
-            let upstream = graph::get_upstream_nodes(
+            let upstream = get_upstream_nodes(
                 &filter_config.upstream_roots,
                 &self.edges,
                 filter_config.max_distance,
@@ -159,7 +124,7 @@ impl GraphProcessor {
 
         // Apply downstream filtering
         if !filter_config.downstream_roots.is_empty() {
-            let downstream = graph::get_downstream_nodes(
+            let downstream = get_downstream_nodes(
                 &filter_config.downstream_roots,
                 &self.edges,
                 filter_config.max_distance,
@@ -296,7 +261,7 @@ impl GraphProcessor {
     /// Get all upstream dependencies from given roots
     /// Returns JSON array of node IDs
     pub fn get_upstream(&self, roots: Vec<String>, max_distance: Option<usize>) -> JsValue {
-        let upstream = graph::get_upstream_nodes(&roots, &self.edges, max_distance);
+        let upstream = get_upstream_nodes(&roots, &self.edges, max_distance);
         let result: Vec<String> = upstream.into_iter().collect();
         serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
     }
@@ -304,7 +269,7 @@ impl GraphProcessor {
     /// Get all downstream dependents from given roots
     /// Returns JSON array of node IDs
     pub fn get_downstream(&self, roots: Vec<String>, max_distance: Option<usize>) -> JsValue {
-        let downstream = graph::get_downstream_nodes(&roots, &self.edges, max_distance);
+        let downstream = get_downstream_nodes(&roots, &self.edges, max_distance);
         let result: Vec<String> = downstream.into_iter().collect();
         serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
     }
@@ -401,7 +366,7 @@ mod tests {
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Test the underlying graph algorithm directly
-            let distances = graph::compute_all_distances(&processor.nodes, &processor.edges);
+            let distances = compute_all_distances(&processor.nodes, &processor.edges);
             assert!(distances.contains_key("a"));
             assert_eq!(distances.get("a").and_then(|d| d.get("b")), Some(&1));
             assert_eq!(distances.get("a").and_then(|d| d.get("c")), Some(&2));
