@@ -317,6 +317,7 @@ pub fn analyze_project(
 
     for entry in WalkDir::new(&actual_source_root)
         .into_iter()
+        .filter_entry(|e| !should_exclude_path(e.path(), &actual_source_root, exclude_patterns))
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().map(|ext| ext == "py").unwrap_or(false))
     {
@@ -332,6 +333,7 @@ pub fn analyze_project(
 
     for entry in WalkDir::new(&actual_source_root)
         .into_iter()
+        .filter_entry(|e| !should_exclude_path(e.path(), &actual_source_root, exclude_patterns))
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir() && e.path() != actual_source_root)
     {

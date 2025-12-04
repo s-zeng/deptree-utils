@@ -1,0 +1,12 @@
+---
+source: crates/deptree-cli/tests/python_test.rs
+expression: dot_output
+---
+digraph dependencies {
+    rankdir=LR;
+    // Note: Scripts (files outside source root) are shown with box shape
+    "main";
+    "real_pkg";
+    "real_pkg.module";
+    "main" -> "real_pkg.module";
+}

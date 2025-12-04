@@ -1591,3 +1591,36 @@ fn test_cytoscape_json_escaping() {
 
     insta::assert_snapshot!(serialized);
 }
+
+// ============================================================================
+// .venv Exclusion Tests
+// ============================================================================
+
+fn venv_exclusion_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("venv_exclusion_project")
+}
+
+#[test]
+fn test_venv_excluded_from_module_discovery() {
+    let root = venv_exclusion_fixture();
+    let graph = python::analyze_project(&root, None, &[])
+        .expect("Failed to analyze venv exclusion project");
+    let dot_output = graph.to_dot(true, false); // include orphans to see all discovered modules
+
+    // Should contain real_pkg modules but NOT .venv contents
+    assert!(dot_output.contains("real_pkg"));
+    assert!(dot_output.contains("main"));
+    assert!(
+        !dot_output.contains("fake_pkg"),
+        ".venv/fake_pkg should be excluded from discovery"
+    );
+    assert!(
+        !dot_output.contains("fake_module"),
+        ".venv/fake_module should be excluded from discovery"
+    );
+
+    insta::assert_snapshot!(dot_output);
+}
