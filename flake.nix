@@ -180,6 +180,7 @@
               clippy
               cargo-watch
               cargo-insta
+              cargo-nextest
               rust-analyzer
             ] ++ frontendDeps;
           };

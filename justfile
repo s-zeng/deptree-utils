@@ -54,7 +54,7 @@ cli-build-release:
 
 # Run CLI tests (Rust snapshot tests)
 cli-test:
-    cargo test
+    cargo nextest run
 
 # Run CLI tests and review snapshot changes
 cli-test-review:
